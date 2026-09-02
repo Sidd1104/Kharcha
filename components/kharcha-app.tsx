@@ -262,19 +262,24 @@ function AuthScreen({ onAuthed }: { onAuthed: (user: AuthUser) => void }) {
         </div>
       </div>
 
-      {/* Right indigo panel - kept exactly as requested */}
+      {/* Right indigo panel */}
       <section className="relative hidden overflow-hidden bg-primary p-12 text-primary-foreground md:flex md:flex-col md:justify-between">
-        <div className="absolute -right-20 -top-20 size-72 rounded-full border-[40px] border-primary-foreground/10" />
-        <div className="relative">
-          <div className="flex justify-end">
-            <Badge variant="outline" className="border-primary-foreground/20 text-primary-foreground">Private by design</Badge>
-          </div>
-          <Sparkles className="mt-24 size-9 text-accent" />
-          <h2 className="mt-5 max-w-sm text-4xl font-semibold leading-tight">Every rupee, accounted for.</h2>
-          <p className="mt-4 max-w-xs leading-6 text-muted-foreground">
+        <div className="pointer-events-none absolute -right-20 -top-20 size-72 rounded-full border-[40px] border-primary-foreground/10" />
+        <div className="flex justify-end">
+          <Badge variant="outline" className="border-primary-foreground/20 text-primary-foreground">
+            Private by design
+          </Badge>
+        </div>
+        <div className="relative my-auto max-w-sm">
+          <Sparkles className="size-9 text-accent text-white" />
+          <h2 className="mt-5 text-4xl font-bold leading-tight tracking-tight text-white">
+            Every rupee, accounted for.
+          </h2>
+          <p className="mt-4 text-sm leading-6 text-indigo-100/80">
             The calm way to keep group money transparent, fair, and drama-free.
           </p>
         </div>
+        <div className="h-6" />
       </section>
     </main>
   )
