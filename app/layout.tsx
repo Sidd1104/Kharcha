@@ -1,5 +1,6 @@
 import { Analytics } from '@vercel/analytics/next'
 import { Geist, Geist_Mono } from 'next/font/google'
+import Script from 'next/script'
 import type { Metadata, Viewport } from 'next'
 import './globals.css'
 
@@ -46,6 +47,7 @@ export default function RootLayout({
     <html lang="en" className="bg-background">
       <body className={`${geist.variable} ${geistMono.variable} font-sans antialiased`}>
         {children}
+        <Script src="https://accounts.google.com/gsi/client" strategy="lazyOnload" />
         {process.env.NODE_ENV === 'production' && <Analytics />}
       </body>
     </html>

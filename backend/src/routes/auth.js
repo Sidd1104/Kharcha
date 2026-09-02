@@ -178,9 +178,17 @@ router.post('/google', async (req, res) => {
   try {
     const googleRes = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${credential}`);
     const payload = await googleRes.json();
-
     if (!googleRes.ok || !payload.email) {
       return res.status(401).json({ error: 'Invalid Google credential' });
+    }
+
+    // Verify token audience matches our Google Client ID if configured
+    const expectedClientId = process.env.GOOGLE_CLIENT_ID;
+    if (expectedClientId && expectedClientId.trim() !== '' && !expectedClientId.includes('your_google_client_id')) {
+      if (payload.aud !== expectedClientId) {
+        console.error('Google token audience mismatch:', payload.aud, 'expected:', expectedClientId);
+        return res.status(401).json({ error: 'Google credential audience mismatch' });
+      }
     }
 
     const email = payload.email.toLowerCase();

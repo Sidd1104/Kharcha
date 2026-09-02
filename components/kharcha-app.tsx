@@ -910,6 +910,13 @@ export function KharchaApp() {
   useEffect(() => { if (user) loadGroups(user) }, [user])
 
   function handleLogout() {
+    if (typeof window !== 'undefined') {
+      try {
+        ;(window as any).google?.accounts?.id?.disableAutoSelect?.()
+      } catch (e) {
+        // Ignore if GIS not loaded
+      }
+    }
     clearSession()
     setUser(null)
     setGroups([])
