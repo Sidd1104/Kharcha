@@ -78,14 +78,7 @@ router.post('/login', async (req, res) => {
   }
 });
 
-// GET /auth/google/status - Checks if real Google OAuth is configured in .env
-router.get('/google/status', (req, res) => {
-  const clientId = process.env.GOOGLE_CLIENT_ID;
-  const configured = Boolean(clientId && clientId.trim() !== '' && !clientId.includes('your_google_client_id'));
-  res.json({ configured, clientId: configured ? clientId : null });
-});
-
-// GET /auth/google - Initiates Google OAuth 2.0 Flow
+// GET /auth/google - Initiates Google OAuth 2.0 Flow (Account Selection Screen)
 router.get('/google', (req, res) => {
   const clientId = process.env.GOOGLE_CLIENT_ID;
   const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
@@ -93,8 +86,9 @@ router.get('/google', (req, res) => {
   const redirectUri = process.env.GOOGLE_CALLBACK_URL || `${backendUrl}/auth/google/callback`;
 
   if (!clientId || clientId.trim() === '' || clientId.includes('your_google_client_id')) {
-    // If not configured, redirect to frontend with interactive quick Google login
-    return res.redirect(`${frontendUrl}/?google_quick=true`);
+    return res.redirect(
+      `${frontendUrl}/?error=${encodeURIComponent('Please configure GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in backend/.env to connect Google Login.')}`
+    );
   }
 
   const state = crypto.randomBytes(16).toString('hex');
@@ -112,7 +106,7 @@ router.get('/google/callback', async (req, res) => {
   const redirectUri = process.env.GOOGLE_CALLBACK_URL || `${backendUrl}/auth/google/callback`;
 
   if (error || !code) {
-    return res.redirect(`${frontendUrl}/?error=${encodeURIComponent(error || 'Google login cancelled')}`);
+    return res.redirect(`${frontendUrl}/?error=${encodeURIComponent(error || 'Google login was cancelled')}`);
   }
 
   const clientId = process.env.GOOGLE_CLIENT_ID;
@@ -171,38 +165,6 @@ router.get('/google/callback', async (req, res) => {
   } catch (err) {
     console.error('Google OAuth callback error:', err);
     res.redirect(`${frontendUrl}/?error=${encodeURIComponent('Server error during Google authentication')}`);
-  }
-});
-
-// POST /auth/google/quick - One-click instant Google login
-router.post('/google/quick', async (req, res) => {
-  const { email = 'siddhant11mj@gmail.com', name = 'Sidd' } = req.body;
-  const cleanEmail = email.toLowerCase().trim();
-
-  try {
-    const existing = await pool.query('SELECT * FROM users WHERE email = $1', [cleanEmail]);
-    let user;
-
-    if (existing.rows.length > 0) {
-      user = existing.rows[0];
-    } else {
-      const dummyPassword = crypto.randomBytes(32).toString('hex');
-      const passwordHash = await bcrypt.hash(dummyPassword, 10);
-      const inserted = await pool.query(
-        'INSERT INTO users (name, email, password_hash) VALUES ($1, $2, $3) RETURNING id, name, email, created_at',
-        [name, cleanEmail, passwordHash]
-      );
-      user = inserted.rows[0];
-    }
-
-    const token = signToken(user);
-    res.json({
-      token,
-      user: { id: user.id, name: user.name, email: user.email },
-    });
-  } catch (err) {
-    console.error('Quick Google auth error:', err);
-    res.status(500).json({ error: 'Failed to authenticate Google user' });
   }
 });
 

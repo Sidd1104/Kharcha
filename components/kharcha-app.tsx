@@ -143,25 +143,9 @@ function AuthScreen({
     }
   }
 
-  async function handleGoogleLogin() {
+  function handleGoogleLogin() {
     setError(null)
-    setLoading(true)
-    try {
-      const config = await checkGoogleOAuthConfig().catch(() => ({ configured: false, clientId: null }))
-      if (config.configured) {
-        window.location.href = getGoogleAuthUrl()
-      } else {
-        const googleEmail = email && email.includes('@') ? email : 'siddhant11mj@gmail.com'
-        const googleName = name ? name : 'Sidd'
-        const result = await quickGoogleLogin(googleEmail, googleName)
-        setSession(result.token, result.user)
-        onAuthed(result.user)
-      }
-    } catch (err: any) {
-      setError(err.message || 'Failed to sign in with Google')
-    } finally {
-      setLoading(false)
-    }
+    window.location.href = getGoogleAuthUrl()
   }
 
   return (
