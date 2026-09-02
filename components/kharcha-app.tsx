@@ -15,7 +15,7 @@ import {
   AuthUser, Balance, Expense, Group, SettlementTxn,
   addExpense, clearSession, confirmSettlement, createGroup, fetchBalances,
   fetchExpenses, fetchGroupDetail, fetchGroups, fetchSettlements,
-  getStoredUser, getToken, loginUser, registerUser, setSession,
+  getGoogleAuthUrl, getStoredUser, getToken, loginUser, registerUser, setSession,
 } from '@/lib/api'
 
 const CATEGORY_ICONS: Record<string, any> = {
@@ -108,13 +108,23 @@ function PeopleStack({ members, size = 'size-8' }: { members: { name: string }[]
 // ---------------------------------------------------------------------------
 // Auth screen — real register/login against the backend
 // ---------------------------------------------------------------------------
-function AuthScreen({ onAuthed }: { onAuthed: (user: AuthUser) => void }) {
+function AuthScreen({
+  onAuthed,
+  initialError,
+}: {
+  onAuthed: (user: AuthUser) => void
+  initialError?: string | null
+}) {
   const [mode, setMode] = useState<'login' | 'register'>('login')
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(initialError || null)
+
+  useEffect(() => {
+    if (initialError) setError(initialError)
+  }, [initialError])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -131,6 +141,11 @@ function AuthScreen({ onAuthed }: { onAuthed: (user: AuthUser) => void }) {
     } finally {
       setLoading(false)
     }
+  }
+
+  function handleGoogleLogin() {
+    setError(null)
+    window.location.href = getGoogleAuthUrl()
   }
 
   return (
@@ -193,7 +208,11 @@ function AuthScreen({ onAuthed }: { onAuthed: (user: AuthUser) => void }) {
               />
             </div>
 
-            {error && <p className="text-sm text-red-500">{error}</p>}
+            {error && (
+              <div className="rounded-lg border border-red-500/20 bg-red-500/10 p-3 text-xs text-red-400">
+                {error}
+              </div>
+            )}
 
             <Button
               type="submit"
@@ -213,7 +232,8 @@ function AuthScreen({ onAuthed }: { onAuthed: (user: AuthUser) => void }) {
             <Button
               type="button"
               variant="outline"
-              className="h-11 w-full rounded-lg border-border bg-card/40 text-sm font-medium text-foreground hover:bg-muted"
+              onClick={handleGoogleLogin}
+              className="h-11 w-full rounded-lg border-border bg-card/40 text-sm font-medium text-foreground hover:bg-muted cursor-pointer transition-colors"
             >
               <svg className="mr-2 size-4" viewBox="0 0 24 24">
                 <path
@@ -831,6 +851,7 @@ function GroupView({
 // ---------------------------------------------------------------------------
 export function KharchaApp() {
   const [user, setUser] = useState<AuthUser | null>(null)
+  const [oauthError, setOauthError] = useState<string | null>(null)
   const [checkingSession, setCheckingSession] = useState(true)
   const [groups, setGroups] = useState<Group[]>([])
   const [groupBalances, setGroupBalances] = useState<Record<number, number>>({})
@@ -839,9 +860,32 @@ export function KharchaApp() {
   const [newGroupOpen, setNewGroupOpen] = useState(false)
 
   useEffect(() => {
-    const stored = getStoredUser()
-    const token = getToken()
-    if (stored && token) setUser(stored)
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search)
+      const token = params.get('token')
+      const userId = params.get('userId')
+      const name = params.get('name')
+      const email = params.get('email')
+      const err = params.get('error')
+
+      if (token && userId) {
+        const authedUser: AuthUser = {
+          id: Number(userId),
+          name: name ? decodeURIComponent(name) : 'Google User',
+          email: email ? decodeURIComponent(email) : '',
+        }
+        setSession(token, authedUser)
+        setUser(authedUser)
+        window.history.replaceState({}, document.title, window.location.pathname)
+      } else if (err) {
+        setOauthError(decodeURIComponent(err))
+        window.history.replaceState({}, document.title, window.location.pathname)
+      } else {
+        const stored = getStoredUser()
+        const storedToken = getToken()
+        if (stored && storedToken) setUser(stored)
+      }
+    }
     setCheckingSession(false)
   }, [])
 
@@ -877,7 +921,7 @@ export function KharchaApp() {
   }
 
   if (!user) {
-    return <AuthScreen onAuthed={setUser} />
+    return <AuthScreen onAuthed={setUser} initialError={oauthError} />
   }
 
   return (
