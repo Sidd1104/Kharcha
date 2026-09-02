@@ -22,5 +22,6 @@ build/
 .DS_Store
 *.log
 *.db
+*.db-*
 *.sqlite
 *.sqlite3
