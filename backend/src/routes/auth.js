@@ -1,6 +1,7 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
 const { pool } = require('../db');
 
 const router = express.Router();
@@ -8,7 +9,7 @@ const router = express.Router();
 function signToken(user) {
   return jwt.sign(
     { userId: user.id, email: user.email, name: user.name },
-    process.env.JWT_SECRET,
+    process.env.JWT_SECRET || 'kharcha_dev_secret',
     { expiresIn: '7d' }
   );
 }
@@ -74,6 +75,143 @@ router.post('/login', async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to log in' });
+  }
+});
+
+// GET /auth/google - Initiates Google OAuth 2.0 Flow
+router.get('/google', (req, res) => {
+  const clientId = process.env.GOOGLE_CLIENT_ID;
+  const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+  const backendUrl = `http://localhost:${process.env.PORT || 4000}`;
+  const redirectUri = process.env.GOOGLE_CALLBACK_URL || `${backendUrl}/auth/google/callback`;
+
+  if (!clientId || clientId.trim() === '' || clientId.includes('your_google_client_id')) {
+    return res.redirect(
+      `${frontendUrl}/?error=${encodeURIComponent('Google OAuth is not configured yet. Add GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in backend/.env')}`
+    );
+  }
+
+  const state = crypto.randomBytes(16).toString('hex');
+  const scope = encodeURIComponent('openid email profile');
+  const googleAuthUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${scope}&state=${state}&access_type=offline&prompt=select_account`;
+
+  res.redirect(googleAuthUrl);
+});
+
+// GET /auth/google/callback - Handles Google OAuth 2.0 Authorization Code exchange
+router.get('/google/callback', async (req, res) => {
+  const { code, error } = req.query;
+  const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+  const backendUrl = `http://localhost:${process.env.PORT || 4000}`;
+  const redirectUri = process.env.GOOGLE_CALLBACK_URL || `${backendUrl}/auth/google/callback`;
+
+  if (error || !code) {
+    return res.redirect(`${frontendUrl}/?error=${encodeURIComponent(error || 'Google login cancelled')}`);
+  }
+
+  const clientId = process.env.GOOGLE_CLIENT_ID;
+  const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+
+  try {
+    // Exchange code for access token
+    const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        code: String(code),
+        client_id: clientId,
+        client_secret: clientSecret,
+        redirect_uri: redirectUri,
+        grant_type: 'authorization_code',
+      }),
+    });
+
+    const tokenData = await tokenRes.json();
+    if (!tokenRes.ok || !tokenData.access_token) {
+      console.error('Failed to exchange Google OAuth code:', tokenData);
+      return res.redirect(`${frontendUrl}/?error=${encodeURIComponent(tokenData.error_description || 'Failed to exchange Google authorization code')}`);
+    }
+
+    // Fetch user profile from Google
+    const userRes = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
+      headers: { Authorization: `Bearer ${tokenData.access_token}` },
+    });
+    const profile = await userRes.json();
+
+    if (!profile.email) {
+      return res.redirect(`${frontendUrl}/?error=${encodeURIComponent('Could not retrieve email from Google')}`);
+    }
+
+    const email = profile.email.toLowerCase();
+    const name = profile.name || profile.given_name || email.split('@')[0];
+
+    // Find or create user in database
+    const existing = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
+    let user;
+
+    if (existing.rows.length > 0) {
+      user = existing.rows[0];
+    } else {
+      const dummyPassword = crypto.randomBytes(32).toString('hex');
+      const passwordHash = await bcrypt.hash(dummyPassword, 10);
+      const inserted = await pool.query(
+        'INSERT INTO users (name, email, password_hash) VALUES ($1, $2, $3) RETURNING id, name, email, created_at',
+        [name, email, passwordHash]
+      );
+      user = inserted.rows[0];
+    }
+
+    const token = signToken(user);
+    res.redirect(
+      `${frontendUrl}/?token=${token}&userId=${user.id}&name=${encodeURIComponent(user.name)}&email=${encodeURIComponent(user.email)}`
+    );
+  } catch (err) {
+    console.error('Google OAuth callback error:', err);
+    res.redirect(`${frontendUrl}/?error=${encodeURIComponent('Server error during Google authentication')}`);
+  }
+});
+
+// POST /auth/google - Handles Google ID token directly from client popup/GIS
+router.post('/google', async (req, res) => {
+  const { credential } = req.body;
+  if (!credential) {
+    return res.status(400).json({ error: 'Google credential is required' });
+  }
+
+  try {
+    const googleRes = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${credential}`);
+    const payload = await googleRes.json();
+
+    if (!googleRes.ok || !payload.email) {
+      return res.status(401).json({ error: 'Invalid Google credential' });
+    }
+
+    const email = payload.email.toLowerCase();
+    const name = payload.name || payload.given_name || email.split('@')[0];
+
+    const existing = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
+    let user;
+
+    if (existing.rows.length > 0) {
+      user = existing.rows[0];
+    } else {
+      const dummyPassword = crypto.randomBytes(32).toString('hex');
+      const passwordHash = await bcrypt.hash(dummyPassword, 10);
+      const inserted = await pool.query(
+        'INSERT INTO users (name, email, password_hash) VALUES ($1, $2, $3) RETURNING id, name, email, created_at',
+        [name, email, passwordHash]
+      );
+      user = inserted.rows[0];
+    }
+
+    const token = signToken(user);
+    res.json({
+      token,
+      user: { id: user.id, name: user.name, email: user.email },
+    });
+  } catch (err) {
+    console.error('Google ID token verification error:', err);
+    res.status(500).json({ error: 'Failed to verify Google login' });
   }
 });
 
