@@ -59,6 +59,9 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 // ---- Auth ----
 export const getGoogleAuthUrl = () => `${BASE_URL}/auth/google`
 
+export const checkGoogleOAuthConfig = () =>
+  request<{ configured: boolean; clientId: string | null }>('/auth/google/status')
+
 export const registerUser = (name: string, email: string, password: string) =>
   request<{ token: string; user: AuthUser }>('/auth/register', {
     method: 'POST',
@@ -69,6 +72,12 @@ export const loginUser = (email: string, password: string) =>
   request<{ token: string; user: AuthUser }>('/auth/login', {
     method: 'POST',
     body: JSON.stringify({ email, password }),
+  })
+
+export const quickGoogleLogin = (email?: string, name?: string) =>
+  request<{ token: string; user: AuthUser }>('/auth/google/quick', {
+    method: 'POST',
+    body: JSON.stringify({ email, name }),
   })
 
 export const loginWithGoogleCredential = (credential: string) =>
