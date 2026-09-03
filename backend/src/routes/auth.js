@@ -113,6 +113,15 @@ router.post('/login', async (req, res) => {
   }
 });
 
+// GET /auth/google/status - Checks if Google OAuth credentials are configured
+router.get('/google/status', (req, res) => {
+  const clientId = process.env.GOOGLE_CLIENT_ID;
+  const configured = Boolean(
+    clientId && clientId.trim() !== '' && !clientId.includes('your_google_client_id')
+  );
+  res.json({ configured, clientId: configured ? clientId : null });
+});
+
 // GET /auth/google - Initiates Google OAuth 2.0 Flow with signed CSRF state & account selection
 router.get('/google', (req, res) => {
   const clientId = process.env.GOOGLE_CLIENT_ID;
@@ -127,10 +136,17 @@ router.get('/google', (req, res) => {
   }
 
   const state = generateState();
-  const scope = encodeURIComponent('openid email profile');
-  const googleAuthUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${scope}&state=${state}&access_type=offline&prompt=select_account`;
+  const params = new URLSearchParams({
+    client_id: clientId,
+    redirect_uri: redirectUri,
+    response_type: 'code',
+    scope: 'openid email profile',
+    state: state,
+    access_type: 'offline',
+    prompt: 'select_account',
+  });
 
-  res.redirect(googleAuthUrl);
+  res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`);
 });
 
 // GET /auth/google/callback - Verifies CSRF state, exchanges authorization code for tokens, signs user JWT
