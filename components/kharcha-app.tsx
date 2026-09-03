@@ -1,9 +1,9 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import {
   ArrowLeft, ArrowRight, Bell, Car, Check, Home, Loader2, Lock, Mail, Plus,
-  Receipt, ShieldCheck, SlidersHorizontal, Sparkles, User, Utensils, Wallet, X,
+  Receipt, ShieldCheck, SlidersHorizontal, Sparkles, User, UserPlus, Utensils, Wallet, X,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -12,10 +12,12 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Separator } from '@/components/ui/separator'
 import { cn } from '@/lib/utils'
 import {
-  AuthUser, Balance, Expense, Group, SettlementTxn,
-  addExpense, checkGoogleOAuthConfig, clearSession, confirmSettlement, createGroup, fetchBalances,
-  fetchExpenses, fetchGroupDetail, fetchGroups, fetchSettlements,
-  getGoogleAuthUrl, getStoredUser, getToken, loginUser, quickGoogleLogin, registerUser, setSession,
+  AuthUser, Balance, Expense, Group, Participant, PendingInvite, SettlementTxn,
+  acceptInvite, addExpense, addGuest, checkGoogleOAuthConfig, clearSession,
+  confirmSettlement, createGroup, declineInvite, fetchBalances,
+  fetchExpenses, fetchGroupDetail, fetchGroups, fetchNotifications, fetchSettlements,
+  getGoogleAuthUrl, getStoredUser, getToken, loginUser, quickGoogleLogin, registerUser,
+  sendInvite, setSession,
 } from '@/lib/api'
 
 const CATEGORY_ICONS: Record<string, any> = {
@@ -81,13 +83,13 @@ function getGroupIconDetails(group: Group) {
   ) {
     return {
       Icon: Utensils,
-      bg: 'bg-[#fef3c7] text-[#b45309]',
+      bg: 'bg-[#fff3e0] text-[#e65100]',
     }
   }
 
   return {
     Icon: Wallet,
-    bg: 'bg-[#ede9fe] text-[#6d28d9]',
+    bg: 'bg-[#e8eaf6] text-[#283593]',
   }
 }
 
@@ -122,20 +124,17 @@ function AuthScreen({
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(initialError || null)
 
-  useEffect(() => {
-    if (initialError) setError(initialError)
-  }, [initialError])
-
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setError(null)
     setLoading(true)
     try {
-      const result = mode === 'login'
-        ? await loginUser(email, password)
-        : await registerUser(name, email, password)
-      setSession(result.token, result.user)
-      onAuthed(result.user)
+      const { token, user } =
+        mode === 'register'
+          ? await registerUser(name, email, password)
+          : await loginUser(email, password)
+      setSession(token, user)
+      onAuthed(user)
     } catch (err: any) {
       setError(err.message || 'Something went wrong')
     } finally {
@@ -306,19 +305,22 @@ function AuthScreen({
 }
 
 // ---------------------------------------------------------------------------
-// Add expense modal — real form, posts to the backend
+// Add expense modal — uses participant IDs
 // ---------------------------------------------------------------------------
 function NewExpense({
-  groupId, members, onClose, onSaved,
+  groupId, participants, onClose, onSaved,
 }: {
   groupId: number
-  members: AuthUser[]
+  participants: Participant[]
   onClose: () => void
   onSaved: () => void
 }) {
+  // Only active & guest participants can pay or be split with (not invited)
+  const splitParticipants = participants.filter((p) => p.status !== 'invited')
+
   const [description, setDescription] = useState('')
   const [amount, setAmount] = useState('')
-  const [paidBy, setPaidBy] = useState<number | ''>(members[0]?.id ?? '')
+  const [paidBy, setPaidBy] = useState<number | ''>(splitParticipants[0]?.participant_id ?? '')
   const [category, setCategory] = useState('Food')
   const [unequal, setUnequal] = useState(false)
   const [shares, setShares] = useState<Record<number, string>>({})
@@ -335,7 +337,7 @@ function NewExpense({
 
     let splits
     if (unequal) {
-      splits = members.map((m) => ({ userId: m.id, shareAmount: parseFloat(shares[m.id] || '0') }))
+      splits = splitParticipants.map((p) => ({ participantId: p.participant_id, shareAmount: parseFloat(shares[p.participant_id] || '0') }))
       const total = splits.reduce((s, x) => s + x.shareAmount, 0)
       if (Math.abs(total - amt) > 0.05) {
         setError(`Splits add up to ₹${total.toFixed(2)}, but the expense is ₹${amt.toFixed(2)}.`)
@@ -361,7 +363,7 @@ function NewExpense({
         <div className="flex items-start justify-between">
           <div>
             <h2 className="text-xl font-semibold text-foreground">Add an expense</h2>
-            <p className="mt-1 text-sm text-muted-foreground">Split with {members.length} people</p>
+            <p className="mt-1 text-sm text-muted-foreground">Split with {splitParticipants.length} people</p>
           </div>
           <button aria-label="Close" onClick={onClose} className="rounded-lg p-2 text-muted-foreground hover:bg-muted">
             <X className="size-4" />
@@ -379,7 +381,11 @@ function NewExpense({
               value={paidBy}
               onChange={(e) => setPaidBy(Number(e.target.value))}
             >
-              {members.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+              {splitParticipants.map((p) => (
+                <option key={p.participant_id} value={p.participant_id}>
+                  {p.name}{p.type === 'guest' ? ' (guest)' : ''}
+                </option>
+              ))}
             </select>
           </label>
 
@@ -412,14 +418,14 @@ function NewExpense({
 
           {unequal && (
             <div className="flex flex-col gap-2">
-              {members.map((m) => (
-                <div key={m.id} className="flex items-center gap-3">
-                  <Avatar className="size-7"><AvatarFallback className="text-[10px]">{initialsOf(m.name)}</AvatarFallback></Avatar>
-                  <span className="flex-1 text-sm">{m.name}</span>
+              {splitParticipants.map((p) => (
+                <div key={p.participant_id} className="flex items-center gap-3">
+                  <Avatar className="size-7"><AvatarFallback className="text-[10px]">{initialsOf(p.name)}</AvatarFallback></Avatar>
+                  <span className="flex-1 text-sm">{p.name}{p.type === 'guest' ? ' (guest)' : ''}</span>
                   <Input
                     className="w-28"
-                    value={shares[m.id] || ''}
-                    onChange={(e) => setShares((s) => ({ ...s, [m.id]: e.target.value }))}
+                    value={shares[p.participant_id] || ''}
+                    onChange={(e) => setShares((s) => ({ ...s, [p.participant_id]: e.target.value }))}
                     placeholder="0"
                   />
                 </div>
@@ -439,21 +445,149 @@ function NewExpense({
 }
 
 // ---------------------------------------------------------------------------
-// New group modal
+// Add Person modal — add guest or invite by email (used in both group creation & mid-trip)
+// ---------------------------------------------------------------------------
+function AddPersonModal({
+  groupId,
+  onClose,
+  onAdded,
+}: {
+  groupId: number
+  onClose: () => void
+  onAdded: () => void
+}) {
+  const [mode, setMode] = useState<'guest' | 'invite'>('guest')
+  const [name, setName] = useState('')
+  const [email, setEmail] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [success, setSuccess] = useState<string | null>(null)
+
+  async function handleAdd() {
+    setError(null)
+    setSuccess(null)
+    setLoading(true)
+    try {
+      if (mode === 'guest') {
+        if (!name.trim()) { setError('Enter a name'); setLoading(false); return }
+        await addGuest(groupId, name.trim())
+        setSuccess(`${name.trim()} added as guest`)
+        setName('')
+      } else {
+        if (!email.trim()) { setError('Enter an email'); setLoading(false); return }
+        await sendInvite(groupId, email.trim())
+        setSuccess(`Invite sent to ${email.trim()}`)
+        setEmail('')
+      }
+      onAdded()
+    } catch (err: any) {
+      setError(err.message || 'Failed to add person')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-foreground/40 p-4 backdrop-blur-sm">
+      <div className="w-full max-w-md rounded-xl border border-border bg-card p-6 shadow-2xl">
+        <div className="flex items-start justify-between">
+          <h2 className="text-xl font-semibold text-foreground">Add a person</h2>
+          <button aria-label="Close" onClick={onClose} className="rounded-lg p-2 text-muted-foreground hover:bg-muted">
+            <X className="size-4" />
+          </button>
+        </div>
+
+        {/* Mode toggle */}
+        <div className="mt-4 flex items-center justify-between rounded-xl bg-muted p-1">
+          <button
+            onClick={() => { setMode('guest'); setError(null); setSuccess(null) }}
+            className={cn('flex-1 rounded-lg py-2 text-sm font-medium transition-all', mode === 'guest' && 'bg-card shadow-sm')}
+          >
+            <User className="mr-1.5 inline size-3.5" /> Type name
+          </button>
+          <button
+            onClick={() => { setMode('invite'); setError(null); setSuccess(null) }}
+            className={cn('flex-1 rounded-lg py-2 text-sm font-medium transition-all', mode === 'invite' && 'bg-card shadow-sm')}
+          >
+            <Mail className="mr-1.5 inline size-3.5" /> Invite by email
+          </button>
+        </div>
+
+        <div className="mt-4 flex flex-col gap-3">
+          {mode === 'guest' ? (
+            <>
+              <Input
+                placeholder="Guest name (e.g. Rahul)"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
+              />
+              <p className="text-xs text-muted-foreground">
+                Guests don't need a kharcha account. They can be included in expense splits immediately.
+              </p>
+            </>
+          ) : (
+            <>
+              <Input
+                type="email"
+                placeholder="Email address"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
+              />
+              <p className="text-xs text-muted-foreground">
+                They'll receive an email invite. If they already have an account, they'll be added directly.
+              </p>
+            </>
+          )}
+
+          {error && <p className="text-sm text-red-500">{error}</p>}
+          {success && <p className="text-sm text-emerald-500">{success}</p>}
+
+          <Button className="h-11" onClick={handleAdd} disabled={loading}>
+            {loading ? <Loader2 className="size-4 animate-spin" /> : mode === 'guest' ? 'Add guest' : 'Send invite'}
+          </Button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// New group modal — supports guests + email invites
 // ---------------------------------------------------------------------------
 function NewGroupModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
   const [name, setName] = useState('')
-  const [emails, setEmails] = useState('')
+  const [guests, setGuests] = useState<string[]>([])
+  const [inviteEmails, setInviteEmails] = useState<string[]>([])
+  const [guestInput, setGuestInput] = useState('')
+  const [emailInput, setEmailInput] = useState('')
+  const [addMode, setAddMode] = useState<'guest' | 'invite'>('guest')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  function addGuest() {
+    const trimmed = guestInput.trim()
+    if (trimmed && !guests.includes(trimmed)) {
+      setGuests((g) => [...g, trimmed])
+      setGuestInput('')
+    }
+  }
+
+  function addEmail() {
+    const trimmed = emailInput.trim().toLowerCase()
+    if (trimmed && !inviteEmails.includes(trimmed)) {
+      setInviteEmails((e) => [...e, trimmed])
+      setEmailInput('')
+    }
+  }
 
   async function handleCreate() {
     if (!name) { setError('Group name is required'); return }
     setLoading(true)
     setError(null)
     try {
-      const memberEmails = emails.split(',').map((e) => e.trim()).filter(Boolean)
-      await createGroup(name, 'wallet', memberEmails)
+      await createGroup(name, 'wallet', guests, inviteEmails)
       onCreated()
       onClose()
     } catch (err: any) {
@@ -474,8 +608,81 @@ function NewGroupModal({ onClose, onCreated }: { onClose: () => void; onCreated:
         </div>
         <div className="mt-6 flex flex-col gap-3">
           <Input placeholder="Group name (e.g. Goa Trip 2024)" value={name} onChange={(e) => setName(e.target.value)} />
-          <Input placeholder="Member emails, comma separated (optional)" value={emails} onChange={(e) => setEmails(e.target.value)} />
-          <p className="text-xs text-muted-foreground">Members must already have a kharcha account to be added by email.</p>
+
+          {/* Add people section */}
+          <div className="mt-2">
+            <p className="text-sm font-medium text-foreground mb-2">Add people</p>
+            <div className="flex items-center justify-between rounded-xl bg-muted p-1 mb-3">
+              <button
+                onClick={() => setAddMode('guest')}
+                className={cn('flex-1 rounded-lg py-2 text-sm font-medium transition-all', addMode === 'guest' && 'bg-card shadow-sm')}
+              >
+                <User className="mr-1 inline size-3.5" /> Type names
+              </button>
+              <button
+                onClick={() => setAddMode('invite')}
+                className={cn('flex-1 rounded-lg py-2 text-sm font-medium transition-all', addMode === 'invite' && 'bg-card shadow-sm')}
+              >
+                <Mail className="mr-1 inline size-3.5" /> Invite by email
+              </button>
+            </div>
+
+            {addMode === 'guest' ? (
+              <div className="flex gap-2">
+                <Input
+                  placeholder="Guest name"
+                  value={guestInput}
+                  onChange={(e) => setGuestInput(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addGuest())}
+                  className="flex-1"
+                />
+                <Button type="button" variant="outline" onClick={addGuest} className="shrink-0">
+                  <Plus className="size-4" />
+                </Button>
+              </div>
+            ) : (
+              <div className="flex gap-2">
+                <Input
+                  type="email"
+                  placeholder="Email address"
+                  value={emailInput}
+                  onChange={(e) => setEmailInput(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addEmail())}
+                  className="flex-1"
+                />
+                <Button type="button" variant="outline" onClick={addEmail} className="shrink-0">
+                  <Plus className="size-4" />
+                </Button>
+              </div>
+            )}
+          </div>
+
+          {/* Tags showing added people */}
+          {(guests.length > 0 || inviteEmails.length > 0) && (
+            <div className="flex flex-wrap gap-2">
+              {guests.map((g) => (
+                <span key={`g-${g}`} className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-3 py-1 text-xs font-medium text-emerald-400">
+                  <User className="size-3" /> {g}
+                  <button onClick={() => setGuests((gs) => gs.filter((x) => x !== g))} className="ml-0.5 hover:text-red-400">
+                    <X className="size-3" />
+                  </button>
+                </span>
+              ))}
+              {inviteEmails.map((e) => (
+                <span key={`e-${e}`} className="inline-flex items-center gap-1 rounded-full bg-blue-500/15 px-3 py-1 text-xs font-medium text-blue-400">
+                  <Mail className="size-3" /> {e}
+                  <button onClick={() => setInviteEmails((es) => es.filter((x) => x !== e))} className="ml-0.5 hover:text-red-400">
+                    <X className="size-3" />
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+
+          <p className="text-xs text-muted-foreground">
+            You can mix guests (no account needed) and email invites. You + {guests.length + inviteEmails.length} {guests.length + inviteEmails.length === 1 ? 'person' : 'people'}.
+          </p>
+
           {error && <p className="text-sm text-red-500">{error}</p>}
           <Button className="mt-2 h-11" onClick={handleCreate} disabled={loading}>
             {loading ? <Loader2 className="size-4 animate-spin" /> : 'Create group'}
@@ -487,7 +694,7 @@ function NewGroupModal({ onClose, onCreated }: { onClose: () => void; onCreated:
 }
 
 // ---------------------------------------------------------------------------
-// Dashboard — real groups + real aggregate balance (Screenshots matched)
+// Dashboard — real groups + real aggregate balance
 // ---------------------------------------------------------------------------
 function Dashboard({
   user, groups, groupBalances, loading, onOpenGroup, onNewGroup,
@@ -526,9 +733,8 @@ function Dashboard({
         </Button>
       </div>
 
-      {/* Two-card summary layout (2/3 width + 1/3 width, 12px border radius) */}
+      {/* Two-card summary layout */}
       <section className="mt-7 grid gap-4 sm:grid-cols-3">
-        {/* Total balance card (2/3 width) */}
         <div className="rounded-xl border border-border bg-card p-6 shadow-sm sm:col-span-2">
           <p className="text-sm font-medium text-muted-foreground">Total balance</p>
           <p
@@ -552,7 +758,6 @@ function Dashboard({
           </p>
         </div>
 
-        {/* To settle card (1/3 width) */}
         <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
           <p className="text-sm font-medium text-muted-foreground">To settle</p>
           <p className="mt-3 text-3xl sm:text-4xl font-bold tracking-tight text-foreground">
@@ -593,7 +798,6 @@ function Dashboard({
                   className="group flex flex-col justify-between rounded-xl border border-border bg-card p-5 text-left transition-all hover:border-zinc-700"
                 >
                   <div>
-                    {/* Small colored icon-in-rounded-square at top */}
                     <div className={cn('grid size-10 place-items-center rounded-lg', iconData.bg)}>
                       <GroupIcon className="size-5" />
                     </div>
@@ -603,7 +807,6 @@ function Dashboard({
                     </p>
                   </div>
 
-                  {/* Balance amount right-aligned at the bottom */}
                   <div className="mt-6 flex justify-end">
                     <p
                       className={cn(
@@ -625,7 +828,7 @@ function Dashboard({
 }
 
 // ---------------------------------------------------------------------------
-// Group detail view — real expenses, balances, and settlement (Screenshot matched)
+// Group detail view — uses participants instead of members
 // ---------------------------------------------------------------------------
 function GroupView({
   groupId, currentUser, onBack,
@@ -636,12 +839,13 @@ function GroupView({
 }) {
   const [tab, setTab] = useState<'expenses' | 'balances' | 'settle'>('expenses')
   const [group, setGroup] = useState<Group | null>(null)
-  const [members, setMembers] = useState<AuthUser[]>([])
+  const [participants, setParticipants] = useState<Participant[]>([])
   const [expenses, setExpenses] = useState<Expense[]>([])
   const [balances, setBalances] = useState<Balance[]>([])
   const [settlements, setSettlements] = useState<SettlementTxn[]>([])
   const [loading, setLoading] = useState(true)
   const [expenseOpen, setExpenseOpen] = useState(false)
+  const [addPersonOpen, setAddPersonOpen] = useState(false)
   const [paidKeys, setPaidKeys] = useState<string[]>([])
 
   async function loadAll() {
@@ -653,7 +857,7 @@ function GroupView({
         fetchBalances(groupId),
       ])
       setGroup(detail.group)
-      setMembers(detail.members)
+      setParticipants(detail.participants)
       setExpenses(exp.expenses)
       setBalances(bal.balances)
     } finally {
@@ -679,6 +883,7 @@ function GroupView({
   }
 
   const activeSettlementsCount = settlements.length - paidKeys.length
+  const activeParticipants = participants.filter((p) => p.status !== 'invited')
 
   return (
     <>
@@ -692,12 +897,15 @@ function GroupView({
           <div>
             <h1 className="text-3xl font-bold tracking-tight text-foreground">{group.name}</h1>
             <div className="mt-2 flex items-center gap-3">
-              <PeopleStack members={members} size="size-6" />
-              <span className="text-sm text-muted-foreground">{members.length} members</span>
+              <PeopleStack members={activeParticipants} size="size-6" />
+              <span className="text-sm text-muted-foreground">{activeParticipants.length} members</span>
             </div>
           </div>
         </div>
         <div className="flex gap-2">
+          <Button variant="outline" onClick={() => setAddPersonOpen(true)}>
+            <UserPlus className="mr-1 size-4" /> Add person
+          </Button>
           <Button variant="outline" onClick={() => setExpenseOpen(true)}><Plus className="mr-1 size-4" /> Expense</Button>
           <Button onClick={() => setTab('settle')} className="bg-primary text-primary-foreground hover:bg-primary/90">
             <Receipt className="mr-1 size-4" /> Settle up
@@ -707,7 +915,6 @@ function GroupView({
 
       {tab === 'settle' ? (
         <section className="mt-8">
-          {/* Summary banner at top: soft green background, dark green text */}
           <div className="rounded-xl bg-[#e2f3df] p-5 shadow-sm">
             <p className="text-base sm:text-lg font-bold text-[#1b5e20]">
               {activeSettlementsCount} {activeSettlementsCount === 1 ? 'transaction' : 'transactions'} will settle this group
@@ -717,7 +924,6 @@ function GroupView({
             </p>
           </div>
 
-          {/* Transaction rows */}
           <div className="mt-4 flex flex-col gap-3">
             {settlements.map((txn, i) => {
               const key = `${txn.from}-${txn.to}-${i}`
@@ -817,7 +1023,7 @@ function GroupView({
                 const isPositive = b.balance > 0
                 const isNegative = b.balance < 0
                 return (
-                  <div key={b.userId} className="flex items-center gap-3.5 rounded-xl border border-border bg-card p-4">
+                  <div key={b.participantId} className="flex items-center gap-3.5 rounded-xl border border-border bg-card p-4">
                     <Avatar className="size-10"><AvatarFallback className="bg-secondary text-secondary-foreground text-xs font-semibold">{initialsOf(b.name)}</AvatarFallback></Avatar>
                     <div className="flex-1">
                       <p className="font-semibold text-foreground">{b.name}{isYou && <span className="ml-2 text-xs font-normal text-muted-foreground">(you)</span>}</p>
@@ -837,12 +1043,138 @@ function GroupView({
       {expenseOpen && (
         <NewExpense
           groupId={groupId}
-          members={members}
+          participants={participants}
           onClose={() => setExpenseOpen(false)}
           onSaved={loadAll}
         />
       )}
+
+      {addPersonOpen && (
+        <AddPersonModal
+          groupId={groupId}
+          onClose={() => setAddPersonOpen(false)}
+          onAdded={loadAll}
+        />
+      )}
     </>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Notification bell dropdown
+// ---------------------------------------------------------------------------
+function NotificationBell() {
+  const [invites, setInvites] = useState<PendingInvite[]>([])
+  const [open, setOpen] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  async function load() {
+    try {
+      const data = await fetchNotifications()
+      setInvites(data.invites)
+    } catch {
+      // Ignore errors — non-critical
+    }
+  }
+
+  useEffect(() => {
+    load()
+    const interval = setInterval(load, 30000) // poll every 30s
+    return () => clearInterval(interval)
+  }, [])
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [])
+
+  async function handleAccept(token: string) {
+    setLoading(true)
+    try {
+      await acceptInvite(token)
+      setInvites((inv) => inv.filter((i) => i.token !== token))
+      // Force page reload to refresh groups
+      window.location.reload()
+    } catch {
+      // Ignore
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function handleDecline(token: string) {
+    setLoading(true)
+    try {
+      await declineInvite(token)
+      setInvites((inv) => inv.filter((i) => i.token !== token))
+    } catch {
+      // Ignore
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        aria-label="Notifications"
+        onClick={() => setOpen(!open)}
+        className="relative rounded-lg p-2 text-muted-foreground hover:bg-muted"
+      >
+        <Bell className="size-4" />
+        {invites.length > 0 && (
+          <span className="absolute -right-0.5 -top-0.5 grid size-4 place-items-center rounded-full bg-red-500 text-[10px] font-bold text-white">
+            {invites.length}
+          </span>
+        )}
+      </button>
+
+      {open && (
+        <div className="absolute right-0 top-full z-30 mt-2 w-80 rounded-xl border border-border bg-card p-3 shadow-xl">
+          {invites.length === 0 ? (
+            <p className="py-4 text-center text-sm text-muted-foreground">No pending invitations</p>
+          ) : (
+            <div className="flex flex-col gap-2">
+              <p className="px-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                Pending invitations
+              </p>
+              {invites.map((inv) => (
+                <div key={inv.id} className="rounded-lg border border-border bg-background p-3">
+                  <p className="text-sm font-semibold text-foreground">{inv.group_name}</p>
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    Invited by {inv.inviter_name || 'someone'}
+                  </p>
+                  <div className="mt-2 flex gap-2">
+                    <Button
+                      size="sm"
+                      className="h-7 flex-1 text-xs"
+                      onClick={() => handleAccept(inv.token)}
+                      disabled={loading}
+                    >
+                      Accept
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 flex-1 text-xs"
+                      onClick={() => handleDecline(inv.token)}
+                      disabled={loading}
+                    >
+                      Decline
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -897,6 +1229,7 @@ export function KharchaApp() {
       const balancePairs = await Promise.all(
         list.map(async (g) => {
           const { balances } = await fetchBalances(g.id)
+          // Find balance for current user by matching userId on participants
           const mine = balances.find((b) => b.userId === currentUser.id)
           return [g.id, mine?.balance ?? 0] as const
         })
@@ -940,7 +1273,7 @@ export function KharchaApp() {
             <span className="font-bold tracking-tight text-foreground">kharcha<span className="text-emerald-500">.</span></span>
           </button>
           <div className="flex items-center gap-2">
-            <button aria-label="Notifications" className="rounded-lg p-2 text-muted-foreground hover:bg-muted"><Bell className="size-4" /></button>
+            <NotificationBell />
             <button onClick={handleLogout} className="ml-1">
               <Avatar className="size-8"><AvatarFallback className="bg-accent text-accent-foreground text-xs font-semibold">{initialsOf(user.name)}</AvatarFallback></Avatar>
             </button>
@@ -971,4 +1304,3 @@ export function KharchaApp() {
 }
 
 export default KharchaApp
-
