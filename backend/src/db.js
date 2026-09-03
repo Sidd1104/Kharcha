@@ -45,18 +45,31 @@ if (isPostgres) {
       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
 
-    CREATE TABLE IF NOT EXISTS group_members (
+    CREATE TABLE IF NOT EXISTS group_participants (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       group_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
-      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      joined_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      UNIQUE (group_id, user_id)
+      user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      guest_name TEXT,
+      invite_email TEXT,
+      status TEXT NOT NULL DEFAULT 'active',
+      added_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      CHECK (user_id IS NOT NULL OR guest_name IS NOT NULL)
+    );
+
+    CREATE TABLE IF NOT EXISTS group_invites (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      group_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+      email TEXT NOT NULL,
+      invited_by INTEGER REFERENCES users(id),
+      token TEXT NOT NULL UNIQUE,
+      status TEXT NOT NULL DEFAULT 'pending',
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
 
     CREATE TABLE IF NOT EXISTS expenses (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       group_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
-      paid_by INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      paid_by INTEGER NOT NULL REFERENCES group_participants(id) ON DELETE CASCADE,
       amount NUMERIC NOT NULL CHECK (amount > 0),
       description TEXT NOT NULL,
       category TEXT NOT NULL DEFAULT 'Other',
@@ -66,22 +79,25 @@ if (isPostgres) {
     CREATE TABLE IF NOT EXISTS expense_splits (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       expense_id INTEGER NOT NULL REFERENCES expenses(id) ON DELETE CASCADE,
-      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      participant_id INTEGER NOT NULL REFERENCES group_participants(id) ON DELETE CASCADE,
       share_amount NUMERIC NOT NULL CHECK (share_amount >= 0),
-      UNIQUE (expense_id, user_id)
+      UNIQUE (expense_id, participant_id)
     );
 
     CREATE TABLE IF NOT EXISTS settlements (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       group_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
-      from_user INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      to_user INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      from_participant INTEGER NOT NULL REFERENCES group_participants(id) ON DELETE CASCADE,
+      to_participant INTEGER NOT NULL REFERENCES group_participants(id) ON DELETE CASCADE,
       amount NUMERIC NOT NULL CHECK (amount > 0),
       status TEXT NOT NULL DEFAULT 'pending',
       settled_at DATETIME
     );
 
-    CREATE INDEX IF NOT EXISTS idx_group_members_group ON group_members(group_id);
+    CREATE INDEX IF NOT EXISTS idx_group_participants_group ON group_participants(group_id);
+    CREATE INDEX IF NOT EXISTS idx_group_participants_user ON group_participants(user_id);
+    CREATE INDEX IF NOT EXISTS idx_group_invites_token ON group_invites(token);
+    CREATE INDEX IF NOT EXISTS idx_group_invites_email ON group_invites(email);
     CREATE INDEX IF NOT EXISTS idx_expenses_group ON expenses(group_id);
     CREATE INDEX IF NOT EXISTS idx_expense_splits_expense ON expense_splits(expense_id);
     CREATE INDEX IF NOT EXISTS idx_settlements_group ON settlements(group_id);
