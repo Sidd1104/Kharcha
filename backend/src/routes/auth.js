@@ -14,6 +14,41 @@ function signToken(user) {
   );
 }
 
+// Generates a cryptographically signed state token with 10-minute validity to prevent CSRF
+function generateState() {
+  const secret = process.env.JWT_SECRET || 'kharcha_dev_secret';
+  const timestamp = Date.now();
+  const random = crypto.randomBytes(16).toString('hex');
+  const payload = `${timestamp}:${random}`;
+  const hmac = crypto.createHmac('sha256', secret).update(payload).digest('hex');
+  return `${payload}:${hmac}`;
+}
+
+// Validates state signature and checks expiration
+function verifyState(state) {
+  if (!state || typeof state !== 'string') return false;
+  const parts = state.split(':');
+  if (parts.length !== 3) return false;
+
+  const [timestamp, random, hmac] = parts;
+  const secret = process.env.JWT_SECRET || 'kharcha_dev_secret';
+  const payload = `${timestamp}:${random}`;
+  const expectedHmac = crypto.createHmac('sha256', secret).update(payload).digest('hex');
+
+  // Verify HMAC signature
+  if (!crypto.timingSafeEqual(Buffer.from(hmac), Buffer.from(expectedHmac))) {
+    return false;
+  }
+
+  // Verify token is not expired (valid for 10 minutes)
+  const age = Date.now() - Number(timestamp);
+  if (isNaN(age) || age < 0 || age > 10 * 60 * 1000) {
+    return false;
+  }
+
+  return true;
+}
+
 // POST /auth/register
 router.post('/register', async (req, res) => {
   const { name, email, password } = req.body;
@@ -78,7 +113,7 @@ router.post('/login', async (req, res) => {
   }
 });
 
-// GET /auth/google - Initiates Google OAuth 2.0 Flow (Account Selection Screen)
+// GET /auth/google - Initiates Google OAuth 2.0 Flow with signed CSRF state & account selection
 router.get('/google', (req, res) => {
   const clientId = process.env.GOOGLE_CLIENT_ID;
   const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
@@ -91,16 +126,16 @@ router.get('/google', (req, res) => {
     );
   }
 
-  const state = crypto.randomBytes(16).toString('hex');
+  const state = generateState();
   const scope = encodeURIComponent('openid email profile');
   const googleAuthUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${scope}&state=${state}&access_type=offline&prompt=select_account`;
 
   res.redirect(googleAuthUrl);
 });
 
-// GET /auth/google/callback - Handles Google OAuth 2.0 Authorization Code exchange
+// GET /auth/google/callback - Verifies CSRF state, exchanges authorization code for tokens, signs user JWT
 router.get('/google/callback', async (req, res) => {
-  const { code, error } = req.query;
+  const { code, state, error } = req.query;
   const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
   const backendUrl = `http://localhost:${process.env.PORT || 4000}`;
   const redirectUri = process.env.GOOGLE_CALLBACK_URL || `${backendUrl}/auth/google/callback`;
@@ -109,10 +144,17 @@ router.get('/google/callback', async (req, res) => {
     return res.redirect(`${frontendUrl}/?error=${encodeURIComponent(error || 'Google login was cancelled')}`);
   }
 
+  // 1. Verify CSRF State
+  if (!verifyState(state)) {
+    console.error('Invalid or expired CSRF state in Google OAuth callback');
+    return res.redirect(`${frontendUrl}/?error=${encodeURIComponent('Security error: Invalid or expired OAuth state parameter')}`);
+  }
+
   const clientId = process.env.GOOGLE_CLIENT_ID;
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
 
   try {
+    // 2. Exchange authorization code with Google OAuth token endpoint
     const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -131,18 +173,20 @@ router.get('/google/callback', async (req, res) => {
       return res.redirect(`${frontendUrl}/?error=${encodeURIComponent(tokenData.error_description || 'Failed to exchange Google authorization code')}`);
     }
 
+    // 3. Retrieve user profile info from Google
     const userRes = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
       headers: { Authorization: `Bearer ${tokenData.access_token}` },
     });
     const profile = await userRes.json();
 
     if (!profile.email) {
-      return res.redirect(`${frontendUrl}/?error=${encodeURIComponent('Could not retrieve email from Google')}`);
+      return res.redirect(`${frontendUrl}/?error=${encodeURIComponent('Could not retrieve email from Google profile')}`);
     }
 
     const email = profile.email.toLowerCase();
     const name = profile.name || profile.given_name || email.split('@')[0];
 
+    // 4. Find or create user in database
     const existing = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
     let user;
 
@@ -158,6 +202,7 @@ router.get('/google/callback', async (req, res) => {
       user = inserted.rows[0];
     }
 
+    // 5. Sign our own application JWT token and redirect to frontend
     const token = signToken(user);
     res.redirect(
       `${frontendUrl}/?token=${token}&userId=${user.id}&name=${encodeURIComponent(user.name)}&email=${encodeURIComponent(user.email)}`
@@ -165,58 +210,6 @@ router.get('/google/callback', async (req, res) => {
   } catch (err) {
     console.error('Google OAuth callback error:', err);
     res.redirect(`${frontendUrl}/?error=${encodeURIComponent('Server error during Google authentication')}`);
-  }
-});
-
-// POST /auth/google - Handles Google ID token directly from client popup/GIS
-router.post('/google', async (req, res) => {
-  const { credential } = req.body;
-  if (!credential) {
-    return res.status(400).json({ error: 'Google credential is required' });
-  }
-
-  try {
-    const googleRes = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${credential}`);
-    const payload = await googleRes.json();
-    if (!googleRes.ok || !payload.email) {
-      return res.status(401).json({ error: 'Invalid Google credential' });
-    }
-
-    // Verify token audience matches our Google Client ID if configured
-    const expectedClientId = process.env.GOOGLE_CLIENT_ID;
-    if (expectedClientId && expectedClientId.trim() !== '' && !expectedClientId.includes('your_google_client_id')) {
-      if (payload.aud !== expectedClientId) {
-        console.error('Google token audience mismatch:', payload.aud, 'expected:', expectedClientId);
-        return res.status(401).json({ error: 'Google credential audience mismatch' });
-      }
-    }
-
-    const email = payload.email.toLowerCase();
-    const name = payload.name || payload.given_name || email.split('@')[0];
-
-    const existing = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
-    let user;
-
-    if (existing.rows.length > 0) {
-      user = existing.rows[0];
-    } else {
-      const dummyPassword = crypto.randomBytes(32).toString('hex');
-      const passwordHash = await bcrypt.hash(dummyPassword, 10);
-      const inserted = await pool.query(
-        'INSERT INTO users (name, email, password_hash) VALUES ($1, $2, $3) RETURNING id, name, email, created_at',
-        [name, email, passwordHash]
-      );
-      user = inserted.rows[0];
-    }
-
-    const token = signToken(user);
-    res.json({
-      token,
-      user: { id: user.id, name: user.name, email: user.email },
-    });
-  } catch (err) {
-    console.error('Google ID token verification error:', err);
-    res.status(500).json({ error: 'Failed to verify Google login' });
   }
 });
 
