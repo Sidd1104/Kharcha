@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef } from 'react'
 import {
-  ArrowLeft, ArrowRight, Bell, Car, Check, Home, Loader2, Lock, Mail, Plus,
+  ArrowLeft, ArrowRight, Bell, Car, Check, ChevronDown, Home, Loader2, Lock, Mail, Plus,
   Receipt, ShieldCheck, SlidersHorizontal, Sparkles, User, UserPlus, Utensils, Wallet, X,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -321,11 +321,27 @@ function NewExpense({
   const [description, setDescription] = useState('')
   const [amount, setAmount] = useState('')
   const [paidBy, setPaidBy] = useState<number | ''>(splitParticipants[0]?.participant_id ?? '')
+  const [paidByOpen, setPaidByOpen] = useState(false)
+  const paidByRef = useRef<HTMLDivElement>(null)
   const [category, setCategory] = useState('Food')
   const [unequal, setUnequal] = useState(false)
   const [shares, setShares] = useState<Record<number, string>>({})
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (paidByRef.current && !paidByRef.current.contains(e.target as Node)) {
+        setPaidByOpen(false)
+      }
+    }
+    if (paidByOpen) {
+      document.addEventListener('mousedown', handleClickOutside)
+      return () => document.removeEventListener('mousedown', handleClickOutside)
+    }
+  }, [paidByOpen])
+
+  const selectedParticipant = splitParticipants.find((p) => p.participant_id === paidBy)
 
   async function handleSave() {
     setError(null)
@@ -374,20 +390,73 @@ function NewExpense({
           <Input placeholder="What was this for?" value={description} onChange={(e) => setDescription(e.target.value)} />
           <Input placeholder="Amount" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} />
 
-          <label className="flex items-center justify-between rounded-xl border border-input px-4 py-3 text-sm">
-            <span>Paid by</span>
-            <select
-              className="bg-transparent text-right font-semibold outline-none"
-              value={paidBy}
-              onChange={(e) => setPaidBy(Number(e.target.value))}
+          {/* Custom Paid by dropdown matching theme */}
+          <div ref={paidByRef} className="relative">
+            <button
+              type="button"
+              onClick={() => setPaidByOpen(!paidByOpen)}
+              className="flex w-full items-center justify-between rounded-xl border border-input bg-card/60 px-4 py-3 text-sm transition-colors hover:border-zinc-700"
             >
-              {splitParticipants.map((p) => (
-                <option key={p.participant_id} value={p.participant_id}>
-                  {p.name}{p.type === 'guest' ? ' (guest)' : ''}
-                </option>
-              ))}
-            </select>
-          </label>
+              <span className="font-medium text-muted-foreground">Paid by</span>
+              <div className="flex items-center gap-2">
+                {selectedParticipant ? (
+                  <div className="flex items-center gap-2">
+                    <Avatar className="size-5">
+                      <AvatarFallback className="bg-primary/20 text-[9px] font-bold text-primary">
+                        {initialsOf(selectedParticipant.name)}
+                      </AvatarFallback>
+                    </Avatar>
+                    <span className="font-semibold text-foreground">
+                      {selectedParticipant.name}
+                      {selectedParticipant.type === 'guest' ? ' (guest)' : ''}
+                    </span>
+                  </div>
+                ) : (
+                  <span className="text-muted-foreground">Select member</span>
+                )}
+                <ChevronDown className={cn('size-4 text-muted-foreground transition-transform duration-200', paidByOpen && 'rotate-180')} />
+              </div>
+            </button>
+
+            {paidByOpen && (
+              <div className="absolute left-0 right-0 top-full z-50 mt-1.5 max-h-56 overflow-y-auto rounded-xl border border-zinc-800 bg-[#121215] p-1.5 shadow-2xl backdrop-blur-xl">
+                {splitParticipants.map((p) => {
+                  const isSelected = p.participant_id === paidBy
+                  return (
+                    <button
+                      key={p.participant_id}
+                      type="button"
+                      onClick={() => {
+                        setPaidBy(p.participant_id)
+                        setPaidByOpen(false)
+                      }}
+                      className={cn(
+                        'flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left text-sm font-medium transition-all',
+                        isSelected
+                          ? 'border border-primary/30 bg-primary/20 font-semibold text-primary'
+                          : 'text-zinc-200 hover:bg-zinc-800/80 hover:text-white'
+                      )}
+                    >
+                      <div className="flex min-w-0 items-center gap-2.5">
+                        <Avatar className="size-6 shrink-0">
+                          <AvatarFallback className="bg-zinc-800 text-[9px] font-bold text-zinc-300">
+                            {initialsOf(p.name)}
+                          </AvatarFallback>
+                        </Avatar>
+                        <span className="truncate font-semibold">{p.name}</span>
+                        {p.type === 'guest' && (
+                          <span className="rounded-md bg-zinc-800/90 px-1.5 py-0.5 text-[10px] font-normal text-zinc-400">
+                            guest
+                          </span>
+                        )}
+                      </div>
+                      {isSelected && <Check className="ml-2 size-4 shrink-0 text-primary" />}
+                    </button>
+                  )
+                })}
+              </div>
+            )}
+          </div>
 
           <div>
             <p className="mb-2 text-sm font-medium">Category</p>
