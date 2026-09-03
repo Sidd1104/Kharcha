@@ -8,6 +8,16 @@ const USER_KEY = 'kharcha_user'
 
 export type AuthUser = { id: number; name: string; email: string }
 
+// A participant in a group — could be a registered user, a guest, or an invited person
+export type Participant = {
+  participant_id: number
+  user_id: number | null
+  name: string
+  email: string | null
+  status: 'active' | 'invited' | 'guest'
+  type: 'user' | 'guest' | 'invited'
+}
+
 export function getToken(): string | null {
   if (typeof window === 'undefined') return null
   return localStorage.getItem(TOKEN_KEY)
@@ -98,14 +108,31 @@ export type Group = {
 
 export const fetchGroups = () => request<{ groups: Group[] }>('/groups')
 
-export const createGroup = (name: string, icon?: string, memberEmails?: string[]) =>
+export const createGroup = (
+  name: string,
+  icon?: string,
+  guests?: string[],
+  inviteEmails?: string[]
+) =>
   request<{ group: Group }>('/groups', {
     method: 'POST',
-    body: JSON.stringify({ name, icon, memberEmails }),
+    body: JSON.stringify({ name, icon, guests, inviteEmails }),
   })
 
 export const fetchGroupDetail = (groupId: number) =>
-  request<{ group: Group; members: AuthUser[] }>(`/groups/${groupId}`)
+  request<{ group: Group; participants: Participant[] }>(`/groups/${groupId}`)
+
+export const addGuest = (groupId: number, name: string) =>
+  request<{ participant: Participant }>(`/groups/${groupId}/participants/guest`, {
+    method: 'POST',
+    body: JSON.stringify({ name }),
+  })
+
+export const sendInvite = (groupId: number, email: string) =>
+  request<{ participant: Participant }>(`/groups/${groupId}/participants/invite`, {
+    method: 'POST',
+    body: JSON.stringify({ email }),
+  })
 
 // ---- Expenses ----
 export type Expense = {
@@ -126,9 +153,9 @@ export const addExpense = (
   payload: {
     description: string
     amount: number
-    paidBy: number
+    paidBy: number // participant_id
     category: string
-    splits?: { userId: number; shareAmount: number }[]
+    splits?: { participantId: number; shareAmount: number }[]
   }
 ) =>
   request(`/groups/${groupId}/expenses`, {
@@ -137,7 +164,7 @@ export const addExpense = (
   })
 
 // ---- Balances & Settlements ----
-export type Balance = { userId: number; name: string; balance: number }
+export type Balance = { participantId: number; userId: number | null; name: string; balance: number }
 export type SettlementTxn = { from: number; fromName: string; to: number; toName: string; amount: number }
 
 export const fetchBalances = (groupId: number) =>
@@ -146,8 +173,45 @@ export const fetchBalances = (groupId: number) =>
 export const fetchSettlements = (groupId: number) =>
   request<{ transactionCount: number; transactions: SettlementTxn[] }>(`/groups/${groupId}/settlements`)
 
-export const confirmSettlement = (groupId: number, fromUserId: number, toUserId: number, amount: number) =>
+export const confirmSettlement = (groupId: number, fromParticipantId: number, toParticipantId: number, amount: number) =>
   request(`/groups/${groupId}/settlements/confirm`, {
     method: 'POST',
-    body: JSON.stringify({ fromUserId, toUserId, amount }),
+    body: JSON.stringify({ fromParticipantId, toParticipantId, amount }),
   })
+
+// ---- Invites ----
+export type InviteInfo = {
+  groupName: string
+  groupIcon: string
+  inviterName: string
+  email: string
+  status: string
+  createdAt: string
+}
+
+export const getInviteInfo = (token: string) =>
+  request<InviteInfo>(`/invites/${token}`)
+
+export const acceptInvite = (token: string) =>
+  request<{ message: string; group: { id: number; name: string } }>(`/invites/${token}/accept`, {
+    method: 'POST',
+  })
+
+export const declineInvite = (token: string) =>
+  request<{ message: string }>(`/invites/${token}/decline`, {
+    method: 'POST',
+  })
+
+// ---- Notifications ----
+export type PendingInvite = {
+  id: number
+  token: string
+  email: string
+  created_at: string
+  group_name: string
+  group_icon: string
+  inviter_name: string
+}
+
+export const fetchNotifications = () =>
+  request<{ invites: PendingInvite[] }>('/notifications')
