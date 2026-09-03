@@ -6,6 +6,8 @@ const authRoutes = require('./routes/auth');
 const groupRoutes = require('./routes/groups');
 const expenseRoutes = require('./routes/expenses');
 const settlementRoutes = require('./routes/settlements');
+const inviteRoutes = require('./routes/invites');
+const notificationRoutes = require('./routes/notifications');
 
 const app = express();
 
@@ -19,6 +21,8 @@ app.use('/groups', groupRoutes);
 // expenses and settlements are nested under /groups/:groupId/...
 app.use('/groups', expenseRoutes);
 app.use('/groups', settlementRoutes);
+app.use('/invites', inviteRoutes);
+app.use('/notifications', notificationRoutes);
 
 app.use((req, res) => res.status(404).json({ error: 'Not found' }));
 

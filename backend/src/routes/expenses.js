@@ -11,9 +11,11 @@ router.get('/:groupId/expenses', async (req, res) => {
   try {
     const { rows } = await pool.query(
       `SELECT e.id, e.amount, e.description, e.category, e.created_at,
-              u.id AS paid_by_id, u.name AS paid_by_name
+              gp.id AS paid_by_id,
+              COALESCE(u.name, gp.guest_name) AS paid_by_name
        FROM expenses e
-       JOIN users u ON u.id = e.paid_by
+       JOIN group_participants gp ON gp.id = e.paid_by
+       LEFT JOIN users u ON u.id = gp.user_id
        WHERE e.group_id = $1
        ORDER BY e.created_at DESC`,
       [groupId]
@@ -26,8 +28,8 @@ router.get('/:groupId/expenses', async (req, res) => {
 });
 
 // POST /groups/:groupId/expenses — add an expense with a split
-// body: { description, amount, paidBy, category, splits: [{ userId, shareAmount }] }
-// If `splits` is omitted, the amount is split equally among all current group members.
+// body: { description, amount, paidBy (participant_id), category, splits: [{ participantId, shareAmount }] }
+// If `splits` is omitted, the amount is split equally among all active/guest participants.
 router.post('/:groupId/expenses', async (req, res) => {
   const { groupId } = req.params;
   const { description, amount, paidBy, category, splits } = req.body;
@@ -42,13 +44,14 @@ router.post('/:groupId/expenses', async (req, res) => {
 
     let finalSplits = splits;
     if (!finalSplits || finalSplits.length === 0) {
-      const membersResult = await client.query(
-        'SELECT user_id FROM group_members WHERE group_id = $1',
+      // Equal split among all active & guest participants (not invited)
+      const participantsResult = await client.query(
+        "SELECT id AS participant_id FROM group_participants WHERE group_id = $1 AND status IN ('active', 'guest')",
         [groupId]
       );
-      const memberIds = membersResult.rows.map((r) => r.user_id);
-      const equalShare = Math.round((amount / memberIds.length) * 100) / 100;
-      finalSplits = memberIds.map((userId) => ({ userId, shareAmount: equalShare }));
+      const participantIds = participantsResult.rows.map((r) => r.participant_id);
+      const equalShare = Math.round((amount / participantIds.length) * 100) / 100;
+      finalSplits = participantIds.map((participantId) => ({ participantId, shareAmount: equalShare }));
     }
 
     const totalSplit = finalSplits.reduce((sum, s) => sum + Number(s.shareAmount), 0);
@@ -66,8 +69,8 @@ router.post('/:groupId/expenses', async (req, res) => {
 
     for (const split of finalSplits) {
       await client.query(
-        'INSERT INTO expense_splits (expense_id, user_id, share_amount) VALUES ($1, $2, $3)',
-        [expense.id, split.userId, split.shareAmount]
+        'INSERT INTO expense_splits (expense_id, participant_id, share_amount) VALUES ($1, $2, $3)',
+        [expense.id, split.participantId, split.shareAmount]
       );
     }
 
