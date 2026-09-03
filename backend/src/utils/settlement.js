@@ -1,7 +1,7 @@
 /**
  * Debt-simplification / settlement algorithm.
  *
- * Given each member's net balance in a group (positive = they are owed
+ * Given each participant's net balance in a group (positive = they are owed
  * money, negative = they owe money), this computes the MINIMUM number
  * of transactions required to settle all debts — instead of everyone
  * paying back everyone individually.
@@ -13,21 +13,21 @@
  * This is the standard greedy solution to the "optimal account
  * balancing" problem and produces a minimal (though not always
  * provably optimal in every edge case) transaction count in
- * near-linear time relative to the number of members.
+ * near-linear time relative to the number of participants.
  */
 
 const EPSILON = 0.01; // treat balances smaller than this as settled (avoids floating point noise)
 
 /**
- * @param {Array<{ userId: number|string, balance: number }>} balances
- *   Net balance per user. Positive = owed to them, negative = they owe.
+ * @param {Array<{ participantId: number|string, balance: number }>} balances
+ *   Net balance per participant. Positive = owed to them, negative = they owe.
  * @returns {Array<{ from: number|string, to: number|string, amount: number }>}
  *   Minimal list of transactions that settle the group.
  */
 function computeSettlements(balances) {
   // Work on a copy, rounded to 2 decimal places (currency-safe)
   const people = balances
-    .map((b) => ({ userId: b.userId, balance: Math.round(b.balance * 100) / 100 }))
+    .map((b) => ({ participantId: b.participantId, balance: Math.round(b.balance * 100) / 100 }))
     .filter((b) => Math.abs(b.balance) > EPSILON);
 
   const transactions = [];
@@ -47,8 +47,8 @@ function computeSettlements(balances) {
     const roundedAmount = Math.round(amount * 100) / 100;
 
     transactions.push({
-      from: debtor.userId,
-      to: creditor.userId,
+      from: debtor.participantId,
+      to: creditor.participantId,
       amount: roundedAmount,
     });
 
@@ -67,27 +67,29 @@ function computeSettlements(balances) {
 }
 
 /**
- * Computes each user's net balance in a group from raw expense + split rows.
+ * Computes each participant's net balance in a group from raw expense + split rows.
  *
- * @param {Array<{ paid_by: number, amount: number }>} expenses
- * @param {Array<{ expense_id: number, user_id: number, share_amount: number }>} splits
- * @returns {Map<number, number>} userId -> net balance
+ * @param {Array<{ participant_id: number, amount: number }>} expenses
+ *   Each expense row with the paying participant_id and amount.
+ * @param {Array<{ participant_id: number, share_amount: number }>} splits
+ *   Each split row with the owing participant_id and share_amount.
+ * @returns {Map<number, number>} participantId -> net balance
  */
 function computeBalances(expenses, splits) {
   const balances = new Map();
 
-  const addBalance = (userId, delta) => {
-    balances.set(userId, Math.round(((balances.get(userId) || 0) + delta) * 100) / 100);
+  const addBalance = (participantId, delta) => {
+    balances.set(participantId, Math.round(((balances.get(participantId) || 0) + delta) * 100) / 100);
   };
 
   // Whoever paid gets credited the full amount
   for (const expense of expenses) {
-    addBalance(expense.paid_by, Number(expense.amount));
+    addBalance(expense.participant_id, Number(expense.amount));
   }
 
   // Whoever owes a share gets debited that share
   for (const split of splits) {
-    addBalance(split.user_id, -Number(split.share_amount));
+    addBalance(split.participant_id, -Number(split.share_amount));
   }
 
   return balances;

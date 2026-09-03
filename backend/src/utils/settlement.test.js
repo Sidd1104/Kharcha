@@ -5,9 +5,9 @@ const { computeSettlements, computeBalances } = require('./settlement');
 test('settles a simple 3-person group with minimum transactions', () => {
   // A paid 900, split equally 3 ways (300 each) -> B and C each owe A 300
   const balances = [
-    { userId: 'A', balance: 600 },  // paid 900, owes 300 -> net +600
-    { userId: 'B', balance: -300 },
-    { userId: 'C', balance: -300 },
+    { participantId: 'A', balance: 600 },  // paid 900, owes 300 -> net +600
+    { participantId: 'B', balance: -300 },
+    { participantId: 'C', balance: -300 },
   ];
 
   const result = computeSettlements(balances);
@@ -19,10 +19,10 @@ test('settles a simple 3-person group with minimum transactions', () => {
 
 test('produces fewer transactions than naive pairwise settling for 4 people', () => {
   const balances = [
-    { userId: 'A', balance: 1000 },
-    { userId: 'B', balance: 500 },
-    { userId: 'C', balance: -700 },
-    { userId: 'D', balance: -800 },
+    { participantId: 'A', balance: 1000 },
+    { participantId: 'B', balance: 500 },
+    { participantId: 'C', balance: -700 },
+    { participantId: 'D', balance: -800 },
   ];
 
   const result = computeSettlements(balances);
@@ -33,7 +33,7 @@ test('produces fewer transactions than naive pairwise settling for 4 people', ()
 
   // Verify the settlement actually balances everything to zero
   const net = new Map();
-  for (const b of balances) net.set(b.userId, b.balance);
+  for (const b of balances) net.set(b.participantId, b.balance);
   for (const t of result) {
     net.set(t.from, net.get(t.from) + t.amount);
     net.set(t.to, net.get(t.to) - t.amount);
@@ -45,8 +45,8 @@ test('produces fewer transactions than naive pairwise settling for 4 people', ()
 
 test('returns no transactions when everyone is already settled', () => {
   const balances = [
-    { userId: 'A', balance: 0 },
-    { userId: 'B', balance: 0.001 }, // floating point noise
+    { participantId: 'A', balance: 0 },
+    { participantId: 'B', balance: 0.001 }, // floating point noise
   ];
   const result = computeSettlements(balances);
   assert.strictEqual(result.length, 0);
@@ -54,12 +54,12 @@ test('returns no transactions when everyone is already settled', () => {
 
 test('computeBalances derives correct net balances from expenses and splits', () => {
   const expenses = [
-    { paid_by: 1, amount: 900 },
+    { participant_id: 1, amount: 900 },
   ];
   const splits = [
-    { expense_id: 1, user_id: 1, share_amount: 300 },
-    { expense_id: 1, user_id: 2, share_amount: 300 },
-    { expense_id: 1, user_id: 3, share_amount: 300 },
+    { participant_id: 1, share_amount: 300 },
+    { participant_id: 2, share_amount: 300 },
+    { participant_id: 3, share_amount: 300 },
   ];
 
   const balances = computeBalances(expenses, splits);
