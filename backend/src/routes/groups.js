@@ -45,8 +45,8 @@ router.post('/', async (req, res) => {
 
     // Add creator as active participant
     await client.query(
-      'INSERT INTO group_participants (group_id, user_id, status) VALUES ($1, $2, $3)',
-      [group.id, req.user.id, 'active']
+      'INSERT INTO group_participants (group_id, user_id, guest_name, status) VALUES ($1, $2, $3, $4)',
+      [group.id, req.user.id, req.user.name || null, 'active']
     );
 
     // Add guest participants
@@ -103,8 +103,8 @@ router.post('/', async (req, res) => {
     res.status(201).json({ group });
   } catch (err) {
     await client.query('ROLLBACK');
-    console.error(err);
-    res.status(500).json({ error: 'Failed to create group' });
+    console.error('Group creation error:', err);
+    res.status(500).json({ error: err.message || 'Failed to create group' });
   } finally {
     client.release();
   }
