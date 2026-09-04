@@ -1377,6 +1377,18 @@ function GroupView({
           onAdded={loadAll}
         />
       )}
+
+      {removeMembersOpen && (
+        <RemoveMembersModal
+          groupId={groupId}
+          groupName={group.name}
+          participants={participants}
+          currentUser={currentUser}
+          creatorId={group.created_by}
+          onClose={() => setRemoveMembersOpen(false)}
+          onRemoved={loadAll}
+        />
+      )}
     </>
   )
 }
