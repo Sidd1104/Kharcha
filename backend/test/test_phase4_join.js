@@ -10,7 +10,7 @@ const BASE_URL = 'http://localhost:4000';
 const JWT_SECRET = process.env.JWT_SECRET || 'kharcha_super_secret_jwt_key_2026_dev';
 
 function makeToken(user) {
-  return jwt.sign(user, JWT_SECRET, { expiresIn: '1h' });
+  return jwt.sign({ userId: user.id, email: user.email, name: user.name }, JWT_SECRET, { expiresIn: '1h' });
 }
 
 function request(method, urlPath, headers = {}, body = null) {
@@ -58,8 +58,9 @@ async function run() {
     const rateLimitUser = { id: 7104, email: 'p4ratelimit@test.com', name: 'Phase4 RateLimit' };
 
     for (const u of [creatorUser, joinerUser, invitedUser, rateLimitUser]) {
+      await pool.query('DELETE FROM users WHERE id = $1', [u.id]);
       await pool.query(
-        'INSERT INTO users (id, email, password_hash, name) VALUES ($1, $2, $3, $4) ON CONFLICT (id) DO UPDATE SET email = $2, name = $4',
+        'INSERT INTO users (id, email, password_hash, name) VALUES ($1, $2, $3, $4)',
         [u.id, u.email, 'hash', u.name]
       );
     }
