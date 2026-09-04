@@ -589,4 +589,46 @@ router.delete('/:id/participants', requireGroupMember, handleRemoveParticipants)
 // DELETE /groups/:id/participants/:participantId — remove single member
 router.delete('/:id/participants/:participantId', requireGroupMember, handleRemoveParticipants);
 
+// POST /groups/:id/regenerate-key — creator-only join key regeneration
+router.post('/:id/regenerate-key', requireGroupMember, async (req, res) => {
+  const { id } = req.params;
+
+  try {
+    const groupResult = await pool.query('SELECT * FROM groups WHERE id = $1', [id]);
+    const group = groupResult.rows[0];
+    if (!group) {
+      return res.status(404).json({ error: 'Group not found' });
+    }
+
+    if (group.created_by !== req.user.id) {
+      return res.status(403).json({ error: 'Only the group creator can regenerate the join key' });
+    }
+
+    const newCode = await generateJoinCode(pool);
+    await pool.query(
+      'UPDATE groups SET join_code = $1, join_code_active = true WHERE id = $2',
+      [newCode, id]
+    );
+
+    // Real-time hook for Phase 7
+    const io = req.app.get('io');
+    if (io) {
+      io.to(`group:${id}`).emit('key-regenerated', {
+        groupId: Number(id),
+        newKey: newCode,
+      });
+    }
+
+    return res.status(200).json({
+      groupId: Number(id),
+      join_code: newCode,
+      message: 'New join key generated successfully',
+    });
+  } catch (err) {
+    console.error('Regenerate key error:', err);
+    return res.status(500).json({ error: 'Failed to regenerate join key' });
+  }
+});
+
 module.exports = router;
+
