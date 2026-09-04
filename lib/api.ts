@@ -16,6 +16,9 @@ export type Participant = {
   email: string | null
   status: 'active' | 'invited' | 'guest'
   type: 'user' | 'guest' | 'invited'
+  is_creator?: boolean
+  expense_paid_count?: number
+  split_count?: number
 }
 
 export function getToken(): string | null {
@@ -104,6 +107,7 @@ export type Group = {
   icon: string
   member_count: string
   expense_count: string
+  created_by?: number
 }
 
 export const fetchGroups = () => request<{ groups: Group[] }>('/groups')
@@ -132,6 +136,20 @@ export const sendInvite = (groupId: number, email: string) =>
   request<{ participant: Participant }>(`/groups/${groupId}/participants/invite`, {
     method: 'POST',
     body: JSON.stringify({ email }),
+  })
+
+export const removeParticipants = (groupId: number, participantIds: number[]) =>
+  request<{ success: boolean; removedCount: number; removedIds: number[]; message: string }>(
+    `/groups/${groupId}/participants/remove`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ participantIds }),
+    }
+  )
+
+export const removeParticipant = (groupId: number, participantId: number) =>
+  request<{ success: boolean; message: string }>(`/groups/${groupId}/participants/${participantId}`, {
+    method: 'DELETE',
   })
 
 // ---- Expenses ----
