@@ -95,7 +95,7 @@ async function run() {
     { Authorization: `Bearer ${outsiderToken}` }
   );
   assert.strictEqual(outsiderRes.status, 403);
-  assert.strictEqual(outsiderRes.body.error, 'You are not a member of this group');
+  assert.strictEqual(outsiderRes.body.error, 'Access denied: you are not a member of this group');
   console.log('✓ Non-member blocked by requireGroupMember with 403');
 
   // 4. Test: Non-creator active member attempting to regenerate key -> 403 Forbidden
