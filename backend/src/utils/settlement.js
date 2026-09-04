@@ -39,8 +39,8 @@ function computeSettlements(balances) {
     const debtor = people[0];             // most negative balance
     const creditor = people[people.length - 1]; // most positive balance
 
-    if (Math.abs(debtor.balance) < EPSILON || Math.abs(creditor.balance) < EPSILON) {
-      break; // everyone left is effectively settled
+    if (debtor.balance >= -EPSILON || creditor.balance <= EPSILON) {
+      break; // No valid debtors or creditors left to settle
     }
 
     const amount = Math.min(-debtor.balance, creditor.balance);
