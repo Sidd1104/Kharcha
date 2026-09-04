@@ -1,5 +1,6 @@
 const express = require('express');
 const crypto = require('crypto');
+const rateLimit = require('express-rate-limit');
 const { pool } = require('../db');
 const { requireAuth } = require('../middleware/auth');
 const { requireGroupMember } = require('../middleware/membership');
@@ -8,6 +9,20 @@ const { generateJoinCode } = require('../utils/joinCode');
 
 const router = express.Router();
 router.use(requireAuth);
+
+const joinLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000, // 10 minutes
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  validate: { keyGeneratorIpFallback: false },
+  keyGenerator: (req) => (req.user && req.user.id ? `user_${req.user.id}` : (req.ip || '127.0.0.1')),
+  handler: (req, res) => {
+    res.status(429).json({
+      error: 'Too many join attempts. Please wait a few minutes before trying again.'
+    });
+  }
+});
 
 // GET /groups — list all groups the logged-in user belongs to (as active participant)
 router.get('/', async (req, res) => {
@@ -80,6 +95,177 @@ router.post('/', async (req, res) => {
     res.status(500).json({ error: err.message || 'Failed to create group' });
   } finally {
     client.release();
+  }
+});
+
+// POST /groups/join — join group via 6-digit join key
+router.post('/join', joinLimiter, async (req, res) => {
+  const { joinCode } = req.body;
+
+  // 1. Input validation
+  const sanitizedCode = typeof joinCode === 'string' ? joinCode.trim() : (joinCode ? String(joinCode).trim() : '');
+  if (!/^\d{6}$/.test(sanitizedCode)) {
+    return res.status(400).json({ error: 'Join code must be a 6-digit number' });
+  }
+
+  try {
+    // 2. Lookup group
+    const { rows: groupRows } = await pool.query(
+      'SELECT * FROM groups WHERE join_code = $1 AND join_code_active = true',
+      [sanitizedCode]
+    );
+    const group = groupRows[0];
+    if (!group) {
+      return res.status(404).json({
+        error: 'Invalid or expired join code. Ask the group creator for a new one.'
+      });
+    }
+
+    // 3. Check existing membership
+    const { rows: participantRows } = await pool.query(
+      'SELECT * FROM group_participants WHERE group_id = $1 AND user_id = $2',
+      [group.id, req.user.id]
+    );
+    const existing = participantRows[0];
+
+    if (existing) {
+      if (existing.status === 'active') {
+        return res.status(200).json({
+          group: {
+            id: group.id,
+            name: group.name,
+            icon: group.icon,
+            join_code: group.join_code
+          },
+          participant: {
+            id: existing.id,
+            group_id: existing.group_id,
+            user_id: existing.user_id,
+            status: existing.status
+          },
+          alreadyMember: true,
+          message: 'You are already a member of this group'
+        });
+      }
+
+      if (existing.status === 'invited') {
+        const updateResult = await pool.query(
+          "UPDATE group_participants SET status = 'active', invite_email = NULL WHERE id = $1 RETURNING *",
+          [existing.id]
+        );
+        const participant = updateResult.rows[0];
+
+        // Audit log / event prep for Phase 7
+        const io = req.app.get('io');
+        if (io) {
+          io.to(`group:${group.id}`).emit('member-joined', {
+            groupId: group.id,
+            participant: {
+              id: participant.id,
+              userId: req.user.id,
+              name: req.user.name,
+              email: req.user.email
+            }
+          });
+        }
+
+        return res.status(200).json({
+          group: {
+            id: group.id,
+            name: group.name,
+            icon: group.icon,
+            join_code: group.join_code
+          },
+          participant: {
+            id: participant.id,
+            group_id: participant.group_id,
+            user_id: participant.user_id,
+            status: participant.status
+          },
+          alreadyMember: false,
+          message: 'Successfully joined the group!'
+        });
+      }
+
+      // If status is guest/inactive/other, activate
+      const updateResult = await pool.query(
+        "UPDATE group_participants SET status = 'active' WHERE id = $1 RETURNING *",
+        [existing.id]
+      );
+      const participant = updateResult.rows[0];
+
+      const io = req.app.get('io');
+      if (io) {
+        io.to(`group:${group.id}`).emit('member-joined', {
+          groupId: group.id,
+          participant: {
+            id: participant.id,
+            userId: req.user.id,
+            name: req.user.name,
+            email: req.user.email
+          }
+        });
+      }
+
+      return res.status(200).json({
+        group: {
+          id: group.id,
+          name: group.name,
+          icon: group.icon,
+          join_code: group.join_code
+        },
+        participant: {
+          id: participant.id,
+          group_id: participant.group_id,
+          user_id: participant.user_id,
+          status: participant.status
+        },
+        alreadyMember: false,
+        message: 'Successfully joined the group!'
+      });
+    }
+
+    // 4. New participant insertion
+    const insertResult = await pool.query(
+      "INSERT INTO group_participants (group_id, user_id, guest_name, status) VALUES ($1, $2, $3, 'active') RETURNING *",
+      [group.id, req.user.id, req.user.name || null]
+    );
+    const participant = insertResult.rows[0];
+
+    // 5. Audit log / event prep for Phase 7
+    const io = req.app.get('io');
+    if (io) {
+      io.to(`group:${group.id}`).emit('member-joined', {
+        groupId: group.id,
+        participant: {
+          id: participant.id,
+          userId: req.user.id,
+          name: req.user.name,
+          email: req.user.email
+        }
+      });
+    }
+
+    // 6. Response
+    return res.status(200).json({
+      group: {
+        id: group.id,
+        name: group.name,
+        icon: group.icon,
+        join_code: group.join_code
+      },
+      participant: {
+        id: participant.id,
+        group_id: participant.group_id,
+        user_id: participant.user_id,
+        status: participant.status
+      },
+      alreadyMember: false,
+      message: 'Successfully joined the group!'
+    });
+  } catch (err) {
+    console.error('Join group error:', err);
+    return res.status(500).json({ error: 'Failed to join group' });
   }
 });
 
