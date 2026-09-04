@@ -4,6 +4,7 @@ const { pool } = require('../db');
 const { requireAuth } = require('../middleware/auth');
 const { requireGroupMember } = require('../middleware/membership');
 const { sendInviteEmail } = require('../utils/email');
+const { generateJoinCode } = require('../utils/joinCode');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -29,9 +30,9 @@ router.get('/', async (req, res) => {
 });
 
 // POST /groups — create a new group (creator is auto-added as participant)
-// body: { name, icon?, guests?: string[], inviteEmails?: string[] }
+// body: { name, icon?, guests?: string[] }
 router.post('/', async (req, res) => {
-  const { name, icon, guests, inviteEmails } = req.body;
+  const { name, icon, guests } = req.body;
   if (!name) return res.status(400).json({ error: 'Group name is required' });
 
   const client = await pool.connect();
@@ -62,43 +63,14 @@ router.post('/', async (req, res) => {
       }
     }
 
-    // Add invited participants + create invites
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
-    if (Array.isArray(inviteEmails)) {
-      for (const email of inviteEmails) {
-        const trimmedEmail = (email || '').trim().toLowerCase();
-        if (!trimmedEmail) continue;
-
-        // Check if this email already has an account
-        const existingUser = await client.query('SELECT id, name FROM users WHERE email = $1', [trimmedEmail]);
-
-        if (existingUser.rows.length > 0) {
-          // User exists — add them directly as active participant
-          const userId = existingUser.rows[0].id;
-          await client.query(
-            'INSERT INTO group_participants (group_id, user_id, status) VALUES ($1, $2, $3)',
-            [group.id, userId, 'active']
-          );
-        } else {
-          // User doesn't exist — create invited participant + invite
-          const token = crypto.randomBytes(32).toString('hex');
-          const emailName = trimmedEmail.split('@')[0];
-
-          await client.query(
-            'INSERT INTO group_participants (group_id, guest_name, invite_email, status) VALUES ($1, $2, $3, $4)',
-            [group.id, emailName, trimmedEmail, 'invited']
-          );
-
-          await client.query(
-            'INSERT INTO group_invites (group_id, email, invited_by, token, status) VALUES ($1, $2, $3, $4, $5)',
-            [group.id, trimmedEmail, req.user.id, token, 'pending']
-          );
-
-          // Send email (async, don't block)
-          sendInviteEmail(trimmedEmail, name, req.user.name, token, frontendUrl).catch(() => {});
-        }
-      }
-    }
+    // Generate unique 6-digit join code and update group row before commit
+    const joinCode = await generateJoinCode(client);
+    await client.query(
+      'UPDATE groups SET join_code = $1, join_code_active = true WHERE id = $2',
+      [joinCode, group.id]
+    );
+    group.join_code = joinCode;
+    group.join_code_active = true;
 
     await client.query('COMMIT');
     res.status(201).json({ group });
