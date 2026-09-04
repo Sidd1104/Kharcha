@@ -470,6 +470,15 @@ async function handleRemoveParticipants(req, res) {
     }
 
     await client.query('COMMIT');
+
+    const io = req.app.get('io');
+    if (io) {
+      io.to(`group:${id}`).emit('member-removed', {
+        groupId: Number(id),
+        removedIds: toRemove.map((p) => p.id),
+      });
+    }
+
     res.json({
       success: true,
       removedCount: toRemove.length,

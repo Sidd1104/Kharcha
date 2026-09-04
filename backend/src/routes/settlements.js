@@ -107,7 +107,16 @@ router.post('/:groupId/settlements/confirm', requireGroupMember, async (req, res
        VALUES ($1, $2, $3, $4, 'done', now()) RETURNING *`,
       [groupId, fromParticipantId, toParticipantId, amount]
     );
-    res.status(201).json({ settlement: result.rows[0] });
+    const settlement = result.rows[0];
+    const io = req.app.get('io');
+    if (io) {
+      io.to(`group:${groupId}`).emit('settlement-confirmed', {
+        groupId: Number(groupId),
+        settlement,
+      });
+    }
+
+    res.status(201).json({ settlement });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to confirm settlement' });
