@@ -14,8 +14,14 @@ CREATE TABLE IF NOT EXISTS groups (
   name VARCHAR(150) NOT NULL,
   icon VARCHAR(40) DEFAULT 'wallet',
   created_by INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  join_code VARCHAR(6) UNIQUE,
+  join_code_active BOOLEAN NOT NULL DEFAULT true,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Migration for existing databases
+ALTER TABLE groups ADD COLUMN IF NOT EXISTS join_code VARCHAR(6) UNIQUE;
+ALTER TABLE groups ADD COLUMN IF NOT EXISTS join_code_active BOOLEAN NOT NULL DEFAULT true;
 
 CREATE TABLE IF NOT EXISTS group_participants (
   id SERIAL PRIMARY KEY,
@@ -68,6 +74,7 @@ CREATE TABLE IF NOT EXISTS settlements (
 
 CREATE INDEX IF NOT EXISTS idx_group_participants_group ON group_participants(group_id);
 CREATE INDEX IF NOT EXISTS idx_group_participants_user ON group_participants(user_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_group_participants_user_unique ON group_participants(group_id, user_id) WHERE user_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_group_invites_token ON group_invites(token);
 CREATE INDEX IF NOT EXISTS idx_group_invites_email ON group_invites(email);
 CREATE INDEX IF NOT EXISTS idx_expenses_group ON expenses(group_id);

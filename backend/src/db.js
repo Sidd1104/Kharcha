@@ -42,6 +42,8 @@ if (isPostgres) {
       name TEXT NOT NULL,
       icon TEXT DEFAULT 'wallet',
       created_by INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      join_code TEXT UNIQUE,
+      join_code_active INTEGER NOT NULL DEFAULT 1,
       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -96,12 +98,48 @@ if (isPostgres) {
 
     CREATE INDEX IF NOT EXISTS idx_group_participants_group ON group_participants(group_id);
     CREATE INDEX IF NOT EXISTS idx_group_participants_user ON group_participants(user_id);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_group_participants_user_unique ON group_participants(group_id, user_id) WHERE user_id IS NOT NULL;
     CREATE INDEX IF NOT EXISTS idx_group_invites_token ON group_invites(token);
     CREATE INDEX IF NOT EXISTS idx_group_invites_email ON group_invites(email);
     CREATE INDEX IF NOT EXISTS idx_expenses_group ON expenses(group_id);
     CREATE INDEX IF NOT EXISTS idx_expense_splits_expense ON expense_splits(expense_id);
     CREATE INDEX IF NOT EXISTS idx_settlements_group ON settlements(group_id);
   `);
+
+  // Migration check: verify join_code column in groups table
+  const groupColumns = db.pragma('table_info(groups)');
+  const hasJoinCode = groupColumns.some((col) => col.name === 'join_code');
+  if (!hasJoinCode) {
+    db.exec(`
+      ALTER TABLE groups ADD COLUMN join_code TEXT;
+      ALTER TABLE groups ADD COLUMN join_code_active INTEGER NOT NULL DEFAULT 1;
+    `);
+    console.log('🔄 Migrated groups table: added join_code and join_code_active columns');
+  }
+
+  // Ensure partial unique index exists
+  db.exec(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_group_participants_user_unique 
+    ON group_participants (group_id, user_id) 
+    WHERE user_id IS NOT NULL;
+  `);
+
+  // Backfill unique 6-digit join_code for existing groups with NULL code
+  const groupsWithoutCode = db.prepare('SELECT id FROM groups WHERE join_code IS NULL').all();
+  if (groupsWithoutCode.length > 0) {
+    const crypto = require('crypto');
+    const updateStmt = db.prepare('UPDATE groups SET join_code = ?, join_code_active = 1 WHERE id = ?');
+    for (const g of groupsWithoutCode) {
+      let code;
+      while (true) {
+        code = crypto.randomInt(100000, 1000000).toString();
+        const exists = db.prepare('SELECT 1 FROM groups WHERE join_code = ?').get(code);
+        if (!exists) break;
+      }
+      updateStmt.run(code, g.id);
+    }
+    console.log(`🔑 Backfilled join_code for ${groupsWithoutCode.length} existing group(s)`);
+  }
 
   function formatSql(sql) {
     return sql
