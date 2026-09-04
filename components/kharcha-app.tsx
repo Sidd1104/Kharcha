@@ -11,13 +11,14 @@ import { Badge } from '@/components/ui/badge'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Separator } from '@/components/ui/separator'
 import { cn } from '@/lib/utils'
+import { io } from 'socket.io-client'
 import {
   AuthUser, Balance, Expense, Group, Participant, PendingInvite, SettlementTxn,
   acceptInvite, addExpense, addGuest, checkGoogleOAuthConfig, clearSession,
   confirmSettlement, createGroup, declineInvite, fetchBalances,
   fetchExpenses, fetchGroupDetail, fetchGroups, fetchNotifications, fetchSettlements,
-  getGoogleAuthUrl, getStoredUser, getToken, loginUser, quickGoogleLogin, registerUser,
-  removeParticipants, sendInvite, setSession,
+  getGoogleAuthUrl, getStoredUser, getToken, joinGroup, loginUser, quickGoogleLogin,
+  regenerateGroupKey, registerUser, removeParticipants, sendInvite, setSession,
 } from '@/lib/api'
 
 const CATEGORY_ICONS: Record<string, any> = {
@@ -870,6 +871,99 @@ function RemoveMembersModal({
 }
 
 // ---------------------------------------------------------------------------
+// Join group modal — join with 6-digit key
+// ---------------------------------------------------------------------------
+function JoinGroupModal({
+  onClose,
+  onJoined,
+}: {
+  onClose: () => void
+  onJoined: (groupId: number) => void
+}) {
+  const [code, setCode] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function handleJoin() {
+    const cleanCode = code.trim()
+    if (!/^\d{6}$/.test(cleanCode)) {
+      setError('Please enter a valid 6-digit code')
+      return
+    }
+    setLoading(true)
+    setError(null)
+    try {
+      const res = await joinGroup(cleanCode)
+      onJoined(res.group.id)
+      onClose()
+    } catch (err: any) {
+      setError(err.message || 'Failed to join group')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-foreground/40 p-4 backdrop-blur-sm">
+      <div className="w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-2xl">
+        <div className="flex items-start justify-between">
+          <div className="flex items-center gap-3">
+            <div className="grid size-10 place-items-center rounded-xl bg-primary/10 text-primary">
+              <KeyRound className="size-5" />
+            </div>
+            <div>
+              <h2 className="text-xl font-bold text-foreground">Join a group</h2>
+              <p className="text-xs text-muted-foreground">Enter the 6-digit code shared with you</p>
+            </div>
+          </div>
+          <button aria-label="Close" onClick={onClose} className="rounded-lg p-2 text-muted-foreground hover:bg-muted">
+            <X className="size-4" />
+          </button>
+        </div>
+
+        <div className="mt-6 flex flex-col gap-4">
+          <div>
+            <Input
+              autoFocus
+              type="text"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              maxLength={6}
+              placeholder="000000"
+              value={code}
+              onChange={(e) => {
+                const val = e.target.value.replace(/\D/g, '').slice(0, 6)
+                setCode(val)
+                if (error) setError(null)
+              }}
+              onKeyDown={(e) => e.key === 'Enter' && code.length === 6 && handleJoin()}
+              className="h-14 text-center text-3xl font-mono font-bold tracking-[0.3em] placeholder:text-muted-foreground/30 focus-visible:ring-primary"
+            />
+            <p className="mt-2 text-center text-xs text-muted-foreground">
+              Ask any existing member or the group creator for their 6-digit key.
+            </p>
+          </div>
+
+          {error && (
+            <div className="rounded-lg bg-rose-500/10 p-3 text-center text-xs font-medium text-rose-500">
+              {error}
+            </div>
+          )}
+
+          <Button
+            className="h-11 font-semibold"
+            onClick={handleJoin}
+            disabled={loading || code.length !== 6}
+          >
+            {loading ? <Loader2 className="size-4 animate-spin" /> : 'Join Group'}
+          </Button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // New group modal — supports members by name + email invites
 // ---------------------------------------------------------------------------
 function NewGroupModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
@@ -978,7 +1072,7 @@ function NewGroupModal({ onClose, onCreated }: { onClose: () => void; onCreated:
 // Dashboard — real groups + real aggregate balance
 // ---------------------------------------------------------------------------
 function Dashboard({
-  user, groups, groupBalances, loading, onOpenGroup, onNewGroup,
+  user, groups, groupBalances, loading, onOpenGroup, onNewGroup, onJoinGroup,
 }: {
   user: AuthUser
   groups: Group[]
@@ -986,6 +1080,7 @@ function Dashboard({
   loading: boolean
   onOpenGroup: (id: number) => void
   onNewGroup: () => void
+  onJoinGroup: () => void
 }) {
   const totalBalance = Object.values(groupBalances).reduce((s, b) => s + b, 0)
   const pendingGroupsCount = groups.filter((g) => (groupBalances[g.id] ?? 0) !== 0).length
@@ -996,7 +1091,7 @@ function Dashboard({
 
   return (
     <>
-      {/* Header with date, greeting and New group button */}
+      {/* Header with date, greeting and New group / Join group buttons */}
       <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
         <div>
           <p className="text-xs font-semibold tracking-wider text-primary">
@@ -1006,12 +1101,21 @@ function Dashboard({
             {getGreeting(user.name)}
           </h1>
         </div>
-        <Button
-          onClick={onNewGroup}
-          className="h-10 rounded-lg bg-primary px-4 font-medium text-primary-foreground hover:bg-primary/90"
-        >
-          <Plus className="mr-1.5 size-4" /> New group
-        </Button>
+        <div className="flex items-center gap-2.5">
+          <Button
+            variant="outline"
+            onClick={onJoinGroup}
+            className="h-10 rounded-lg border-border px-4 font-medium"
+          >
+            <KeyRound className="mr-1.5 size-4" /> Join group
+          </Button>
+          <Button
+            onClick={onNewGroup}
+            className="h-10 rounded-lg bg-primary px-4 font-medium text-primary-foreground hover:bg-primary/90"
+          >
+            <Plus className="mr-1.5 size-4" /> New group
+          </Button>
+        </div>
       </div>
 
       {/* Two-card summary layout */}
