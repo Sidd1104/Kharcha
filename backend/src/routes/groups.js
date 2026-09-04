@@ -2,6 +2,7 @@ const express = require('express');
 const crypto = require('crypto');
 const { pool } = require('../db');
 const { requireAuth } = require('../middleware/auth');
+const { requireGroupMember } = require('../middleware/membership');
 const { sendInviteEmail } = require('../utils/email');
 
 const router = express.Router();
@@ -111,7 +112,7 @@ router.post('/', async (req, res) => {
 });
 
 // GET /groups/:id — group detail with participants
-router.get('/:id', async (req, res) => {
+router.get('/:id', requireGroupMember, async (req, res) => {
   const { id } = req.params;
   try {
     const groupResult = await pool.query('SELECT * FROM groups WHERE id = $1', [id]);
@@ -155,7 +156,7 @@ router.get('/:id', async (req, res) => {
 });
 
 // POST /groups/:id/participants/guest — add a guest participant (no account needed)
-router.post('/:id/participants/guest', async (req, res) => {
+router.post('/:id/participants/guest', requireGroupMember, async (req, res) => {
   const { id } = req.params;
   const { name } = req.body;
   if (!name || !name.trim()) return res.status(400).json({ error: 'Guest name is required' });
@@ -183,7 +184,7 @@ router.post('/:id/participants/guest', async (req, res) => {
 });
 
 // POST /groups/:id/participants/invite — invite a person by email
-router.post('/:id/participants/invite', async (req, res) => {
+router.post('/:id/participants/invite', requireGroupMember, async (req, res) => {
   const { id } = req.params;
   const { email } = req.body;
   if (!email || !email.trim()) return res.status(400).json({ error: 'Email is required' });
@@ -422,12 +423,12 @@ async function handleRemoveParticipants(req, res) {
 }
 
 // POST /groups/:id/participants/remove — batch remove members
-router.post('/:id/participants/remove', handleRemoveParticipants);
+router.post('/:id/participants/remove', requireGroupMember, handleRemoveParticipants);
 
 // DELETE /groups/:id/participants — batch remove members via DELETE
-router.delete('/:id/participants', handleRemoveParticipants);
+router.delete('/:id/participants', requireGroupMember, handleRemoveParticipants);
 
 // DELETE /groups/:id/participants/:participantId — remove single member
-router.delete('/:id/participants/:participantId', handleRemoveParticipants);
+router.delete('/:id/participants/:participantId', requireGroupMember, handleRemoveParticipants);
 
 module.exports = router;

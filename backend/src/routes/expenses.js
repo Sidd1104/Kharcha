@@ -1,12 +1,13 @@
 const express = require('express');
 const { pool } = require('../db');
 const { requireAuth } = require('../middleware/auth');
+const { requireGroupMember } = require('../middleware/membership');
 
 const router = express.Router();
 router.use(requireAuth);
 
 // GET /groups/:groupId/expenses — list expenses for a group, most recent first
-router.get('/:groupId/expenses', async (req, res) => {
+router.get('/:groupId/expenses', requireGroupMember, async (req, res) => {
   const { groupId } = req.params;
   try {
     const { rows } = await pool.query(
@@ -30,7 +31,7 @@ router.get('/:groupId/expenses', async (req, res) => {
 // POST /groups/:groupId/expenses — add an expense with a split
 // body: { description, amount, paidBy (participant_id), category, splits: [{ participantId, shareAmount }] }
 // If `splits` is omitted, the amount is split equally among all active/guest participants.
-router.post('/:groupId/expenses', async (req, res) => {
+router.post('/:groupId/expenses', requireGroupMember, async (req, res) => {
   const { groupId } = req.params;
   const { description, amount, paidBy, category, splits } = req.body;
 
