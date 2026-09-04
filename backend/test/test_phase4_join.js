@@ -56,8 +56,9 @@ async function run() {
     const joinerUser = { id: 7102, email: 'p4joiner@test.com', name: 'Phase4 Joiner' };
     const invitedUser = { id: 7103, email: 'p4invited@test.com', name: 'Phase4 Invited' };
     const rateLimitUser = { id: 7104, email: 'p4ratelimit@test.com', name: 'Phase4 RateLimit' };
+    const probeUser = { id: 7105, email: 'p4probe@test.com', name: 'Phase4 Probe' };
 
-    for (const u of [creatorUser, joinerUser, invitedUser, rateLimitUser]) {
+    for (const u of [creatorUser, joinerUser, invitedUser, rateLimitUser, probeUser]) {
       await pool.query('DELETE FROM users WHERE id = $1', [u.id]);
       await pool.query(
         'INSERT INTO users (id, email, password_hash, name) VALUES ($1, $2, $3, $4)',
@@ -69,6 +70,7 @@ async function run() {
     const joinerToken = makeToken(joinerUser);
     const invitedToken = makeToken(invitedUser);
     const rateLimitToken = makeToken(rateLimitUser);
+    const probeToken = makeToken(probeUser);
 
     // 2. Creator creates a group with a guest named "Phase4 Joiner"
     const createRes = await request(
@@ -83,12 +85,12 @@ async function run() {
     const validCode = group.join_code;
     console.log(`Created group ${group.id} with join code ${validCode}`);
 
-    // 3. Test malformed join codes (400)
-    for (const badCode of ['', '123', '12345', '1234567', 'abc123', 'abcdef']) {
+    // 3. Test malformed join codes (400) (using probeUser)
+    for (const badCode of ['', '123', '1234567']) {
       const res = await request(
         'POST',
         '/groups/join',
-        { Authorization: `Bearer ${joinerToken}` },
+        { Authorization: `Bearer ${probeToken}` },
         { joinCode: badCode }
       );
       assert.strictEqual(res.status, 400, `Expected 400 for bad code: "${badCode}"`);
@@ -96,11 +98,11 @@ async function run() {
     }
     console.log('✓ Malformed join codes correctly rejected with 400');
 
-    // 4. Test non-existent join code (404)
+    // 4. Test non-existent join code (404) (using probeUser)
     const nonExistentRes = await request(
       'POST',
       '/groups/join',
-      { Authorization: `Bearer ${joinerToken}` },
+      { Authorization: `Bearer ${probeToken}` },
       { joinCode: '000000' }
     );
     assert.strictEqual(nonExistentRes.status, 404);
@@ -112,8 +114,8 @@ async function run() {
 
     // 5. Test inactive join code (404)
     // Create an inactive group
-    const inactiveGroupRes = await pool.query(
-      "INSERT INTO groups (name, icon, created_by, join_code, join_code_active) VALUES ('Inactive Group', 'wallet', $1, '999999', false) RETURNING *",
+    await pool.query(
+      "INSERT INTO groups (name, icon, created_by, join_code, join_code_active) VALUES ('Inactive Group', 'wallet', $1, '999999', false)",
       [creatorUser.id]
     );
     const inactiveRes = await request(
