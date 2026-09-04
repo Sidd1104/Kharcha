@@ -408,7 +408,6 @@ function NewExpense({
                     </Avatar>
                     <span className="font-semibold text-foreground">
                       {selectedParticipant.name}
-                      {selectedParticipant.type === 'guest' ? ' (guest)' : ''}
                     </span>
                   </div>
                 ) : (
@@ -444,11 +443,6 @@ function NewExpense({
                           </AvatarFallback>
                         </Avatar>
                         <span className="truncate font-semibold">{p.name}</span>
-                        {p.type === 'guest' && (
-                          <span className="rounded-md bg-zinc-800/90 px-1.5 py-0.5 text-[10px] font-normal text-zinc-400">
-                            guest
-                          </span>
-                        )}
                       </div>
                       {isSelected && <Check className="ml-2 size-4 shrink-0 text-primary" />}
                     </button>
@@ -490,7 +484,7 @@ function NewExpense({
               {splitParticipants.map((p) => (
                 <div key={p.participant_id} className="flex items-center gap-3">
                   <Avatar className="size-7"><AvatarFallback className="text-[10px]">{initialsOf(p.name)}</AvatarFallback></Avatar>
-                  <span className="flex-1 text-sm">{p.name}{p.type === 'guest' ? ' (guest)' : ''}</span>
+                  <span className="flex-1 text-sm">{p.name}</span>
                   <Input
                     className="w-28"
                     value={shares[p.participant_id] || ''}
@@ -514,7 +508,8 @@ function NewExpense({
 }
 
 // ---------------------------------------------------------------------------
-// Add Person modal — add guest or invite by email (used in both group creation & mid-trip)
+// ---------------------------------------------------------------------------
+// Add Member modal — add member by name or invite by email
 // ---------------------------------------------------------------------------
 function AddPersonModal({
   groupId,
@@ -540,7 +535,7 @@ function AddPersonModal({
       if (mode === 'guest') {
         if (!name.trim()) { setError('Enter a name'); setLoading(false); return }
         await addGuest(groupId, name.trim())
-        setSuccess(`${name.trim()} added as guest`)
+        setSuccess(`${name.trim()} added to group`)
         setName('')
       } else {
         if (!email.trim()) { setError('Enter an email'); setLoading(false); return }
@@ -550,7 +545,7 @@ function AddPersonModal({
       }
       onAdded()
     } catch (err: any) {
-      setError(err.message || 'Failed to add person')
+      setError(err.message || 'Failed to add member')
     } finally {
       setLoading(false)
     }
@@ -560,7 +555,7 @@ function AddPersonModal({
     <div className="fixed inset-0 z-50 grid place-items-center bg-foreground/40 p-4 backdrop-blur-sm">
       <div className="w-full max-w-md rounded-xl border border-border bg-card p-6 shadow-2xl">
         <div className="flex items-start justify-between">
-          <h2 className="text-xl font-semibold text-foreground">Add a person</h2>
+          <h2 className="text-xl font-semibold text-foreground">Add member</h2>
           <button aria-label="Close" onClick={onClose} className="rounded-lg p-2 text-muted-foreground hover:bg-muted">
             <X className="size-4" />
           </button>
@@ -572,13 +567,13 @@ function AddPersonModal({
             onClick={() => { setMode('guest'); setError(null); setSuccess(null) }}
             className={cn('flex-1 rounded-lg py-2 text-sm font-medium transition-all', mode === 'guest' && 'bg-card shadow-sm')}
           >
-            <User className="mr-1.5 inline size-3.5" /> Type name
+            <User className="mr-1.5 inline size-3.5" /> By name
           </button>
           <button
             onClick={() => { setMode('invite'); setError(null); setSuccess(null) }}
             className={cn('flex-1 rounded-lg py-2 text-sm font-medium transition-all', mode === 'invite' && 'bg-card shadow-sm')}
           >
-            <Mail className="mr-1.5 inline size-3.5" /> Invite by email
+            <Mail className="mr-1.5 inline size-3.5" /> By email
           </button>
         </div>
 
@@ -586,13 +581,13 @@ function AddPersonModal({
           {mode === 'guest' ? (
             <>
               <Input
-                placeholder="Guest name (e.g. Rahul)"
+                placeholder="Member name (e.g. Rahul)"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
               />
               <p className="text-xs text-muted-foreground">
-                Guests don't need a kharcha account. They can be included in expense splits immediately.
+                Add directly by name. They can be included in expense splits immediately.
               </p>
             </>
           ) : (
@@ -614,7 +609,7 @@ function AddPersonModal({
           {success && <p className="text-sm text-emerald-500">{success}</p>}
 
           <Button className="h-11" onClick={handleAdd} disabled={loading}>
-            {loading ? <Loader2 className="size-4 animate-spin" /> : mode === 'guest' ? 'Add guest' : 'Send invite'}
+            {loading ? <Loader2 className="size-4 animate-spin" /> : mode === 'guest' ? 'Add member' : 'Send invite'}
           </Button>
         </div>
       </div>
@@ -623,7 +618,7 @@ function AddPersonModal({
 }
 
 // ---------------------------------------------------------------------------
-// New group modal — supports guests + email invites
+// New group modal — supports members by name + email invites
 // ---------------------------------------------------------------------------
 function NewGroupModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
   const [name, setName] = useState('')
@@ -637,9 +632,16 @@ function NewGroupModal({ onClose, onCreated }: { onClose: () => void; onCreated:
 
   function addGuest() {
     const trimmed = guestInput.trim()
-    if (trimmed && !guests.includes(trimmed)) {
+    if (!trimmed) return
+    const stored = getStoredUser()
+    if (stored?.name && trimmed.toLowerCase() === stored.name.toLowerCase()) {
+      setError(`"${trimmed}" is already added as the group creator (you).`)
+      return
+    }
+    if (!guests.includes(trimmed)) {
       setGuests((g) => [...g, trimmed])
       setGuestInput('')
+      setError(null)
     }
   }
 
@@ -656,7 +658,11 @@ function NewGroupModal({ onClose, onCreated }: { onClose: () => void; onCreated:
     setLoading(true)
     setError(null)
     try {
-      await createGroup(name, 'wallet', guests, inviteEmails)
+      const stored = getStoredUser()
+      const filteredGuests = stored?.name
+        ? guests.filter((g) => g.toLowerCase() !== stored.name.toLowerCase())
+        : guests
+      await createGroup(name, 'wallet', filteredGuests, inviteEmails)
       onCreated()
       onClose()
     } catch (err: any) {
@@ -678,28 +684,28 @@ function NewGroupModal({ onClose, onCreated }: { onClose: () => void; onCreated:
         <div className="mt-6 flex flex-col gap-3">
           <Input placeholder="Group name (e.g. Goa Trip 2024)" value={name} onChange={(e) => setName(e.target.value)} />
 
-          {/* Add people section */}
+          {/* Add members section */}
           <div className="mt-2">
-            <p className="text-sm font-medium text-foreground mb-2">Add people</p>
+            <p className="text-sm font-medium text-foreground mb-2">Add members</p>
             <div className="flex items-center justify-between rounded-xl bg-muted p-1 mb-3">
               <button
                 onClick={() => setAddMode('guest')}
                 className={cn('flex-1 rounded-lg py-2 text-sm font-medium transition-all', addMode === 'guest' && 'bg-card shadow-sm')}
               >
-                <User className="mr-1 inline size-3.5" /> Type names
+                <User className="mr-1 inline size-3.5" /> By name
               </button>
               <button
                 onClick={() => setAddMode('invite')}
                 className={cn('flex-1 rounded-lg py-2 text-sm font-medium transition-all', addMode === 'invite' && 'bg-card shadow-sm')}
               >
-                <Mail className="mr-1 inline size-3.5" /> Invite by email
+                <Mail className="mr-1 inline size-3.5" /> By email
               </button>
             </div>
 
             {addMode === 'guest' ? (
               <div className="flex gap-2">
                 <Input
-                  placeholder="Guest name"
+                  placeholder="Member name"
                   value={guestInput}
                   onChange={(e) => setGuestInput(e.target.value)}
                   onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addGuest())}
@@ -749,7 +755,7 @@ function NewGroupModal({ onClose, onCreated }: { onClose: () => void; onCreated:
           )}
 
           <p className="text-xs text-muted-foreground">
-            You can mix guests (no account needed) and email invites. You + {guests.length + inviteEmails.length} {guests.length + inviteEmails.length === 1 ? 'person' : 'people'}.
+            Add members directly by name or invite them by email. You + {guests.length + inviteEmails.length} {guests.length + inviteEmails.length === 1 ? 'member' : 'members'}.
           </p>
 
           {error && <p className="text-sm text-red-500">{error}</p>}
@@ -973,7 +979,7 @@ function GroupView({
         </div>
         <div className="flex gap-2">
           <Button variant="outline" onClick={() => setAddPersonOpen(true)}>
-            <UserPlus className="mr-1 size-4" /> Add person
+            <UserPlus className="mr-1 size-4" /> Add member
           </Button>
           <Button variant="outline" onClick={() => setExpenseOpen(true)}><Plus className="mr-1 size-4" /> Expense</Button>
           <Button onClick={() => setTab('settle')} className="bg-primary text-primary-foreground hover:bg-primary/90">
