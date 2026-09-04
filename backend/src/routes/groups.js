@@ -128,15 +128,26 @@ router.get('/:id', async (req, res) => {
                 WHEN gp.user_id IS NOT NULL AND gp.status = 'active' THEN 'user'
                 WHEN gp.status = 'invited' THEN 'invited'
                 ELSE 'guest'
-              END AS type
+              END AS type,
+              CASE WHEN gp.user_id = g.created_by THEN 1 ELSE 0 END AS is_creator,
+              (SELECT COUNT(*) FROM expenses e WHERE e.paid_by = gp.id) AS expense_paid_count,
+              (SELECT COUNT(*) FROM expense_splits es WHERE es.participant_id = gp.id) AS split_count
        FROM group_participants gp
+       JOIN groups g ON g.id = gp.group_id
        LEFT JOIN users u ON u.id = gp.user_id
        WHERE gp.group_id = $1
        ORDER BY gp.added_at ASC`,
       [id]
     );
 
-    res.json({ group, participants: participantsResult.rows });
+    const participants = participantsResult.rows.map((p) => ({
+      ...p,
+      is_creator: Boolean(p.is_creator),
+      expense_paid_count: Number(p.expense_paid_count || 0),
+      split_count: Number(p.split_count || 0),
+    }));
+
+    res.json({ group, participants });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to fetch group' });
