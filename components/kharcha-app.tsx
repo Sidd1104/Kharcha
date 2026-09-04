@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef } from 'react'
 import {
-  AlertTriangle, ArrowLeft, ArrowRight, Bell, Car, Check, ChevronDown, Home, Loader2, Lock, Mail, Plus,
+  AlertTriangle, ArrowLeft, ArrowRight, Bell, Car, Check, ChevronDown, Copy, Home, KeyRound, Loader2, Lock, Mail, Plus,
   Receipt, ShieldCheck, SlidersHorizontal, Sparkles, Trash2, User, UserMinus, UserPlus, Utensils, Wallet, X,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -513,16 +513,18 @@ function NewExpense({
 // ---------------------------------------------------------------------------
 function AddPersonModal({
   groupId,
+  joinCode,
   onClose,
   onAdded,
 }: {
   groupId: number
+  joinCode?: string
   onClose: () => void
   onAdded: () => void
 }) {
-  const [mode, setMode] = useState<'guest' | 'invite'>('guest')
+  const [mode, setMode] = useState<'guest' | 'code'>('guest')
   const [name, setName] = useState('')
-  const [email, setEmail] = useState('')
+  const [copied, setCopied] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
@@ -532,22 +534,23 @@ function AddPersonModal({
     setSuccess(null)
     setLoading(true)
     try {
-      if (mode === 'guest') {
-        if (!name.trim()) { setError('Enter a name'); setLoading(false); return }
-        await addGuest(groupId, name.trim())
-        setSuccess(`${name.trim()} added to group`)
-        setName('')
-      } else {
-        if (!email.trim()) { setError('Enter an email'); setLoading(false); return }
-        await sendInvite(groupId, email.trim())
-        setSuccess(`Invite sent to ${email.trim()}`)
-        setEmail('')
-      }
+      if (!name.trim()) { setError('Enter a name'); setLoading(false); return }
+      await addGuest(groupId, name.trim())
+      setSuccess(`${name.trim()} added to group`)
+      setName('')
       onAdded()
     } catch (err: any) {
       setError(err.message || 'Failed to add member')
     } finally {
       setLoading(false)
+    }
+  }
+
+  function handleCopy() {
+    if (joinCode) {
+      navigator.clipboard.writeText(joinCode)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
     }
   }
 
@@ -570,10 +573,10 @@ function AddPersonModal({
             <User className="mr-1.5 inline size-3.5" /> By name
           </button>
           <button
-            onClick={() => { setMode('invite'); setError(null); setSuccess(null) }}
-            className={cn('flex-1 rounded-lg py-2 text-sm font-medium transition-all', mode === 'invite' && 'bg-card shadow-sm')}
+            onClick={() => { setMode('code'); setError(null); setSuccess(null) }}
+            className={cn('flex-1 rounded-lg py-2 text-sm font-medium transition-all', mode === 'code' && 'bg-card shadow-sm')}
           >
-            <Mail className="mr-1.5 inline size-3.5" /> By email
+            <KeyRound className="mr-1.5 inline size-3.5" /> Share join code
           </button>
         </div>
 
@@ -589,28 +592,35 @@ function AddPersonModal({
               <p className="text-xs text-muted-foreground">
                 Add directly by name. They can be included in expense splits immediately.
               </p>
+
+              {error && <p className="text-sm text-red-500">{error}</p>}
+              {success && <p className="text-sm text-emerald-500">{success}</p>}
+
+              <Button className="h-11" onClick={handleAdd} disabled={loading}>
+                {loading ? <Loader2 className="size-4 animate-spin" /> : 'Add member'}
+              </Button>
             </>
           ) : (
-            <>
-              <Input
-                type="email"
-                placeholder="Email address"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
-              />
-              <p className="text-xs text-muted-foreground">
-                They'll receive an email invite. If they already have an account, they'll be added directly.
+            <div className="flex flex-col items-center justify-center p-5 rounded-xl bg-muted/40 border border-border text-center">
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Group Join Key</p>
+              <div className="mt-2 text-3xl font-mono font-bold tracking-widest text-primary">
+                {joinCode || '------'}
+              </div>
+              <p className="mt-2 text-xs text-muted-foreground max-w-xs">
+                Share this 6-digit code. Any Kharcha user can click <strong>Join Group</strong> on their dashboard and enter it to join instantly!
               </p>
-            </>
+              <Button
+                variant="outline"
+                size="sm"
+                className="mt-4"
+                onClick={handleCopy}
+                disabled={!joinCode}
+              >
+                {copied ? <Check className="mr-1.5 size-3.5 text-emerald-500" /> : <Copy className="mr-1.5 size-3.5" />}
+                {copied ? 'Copied to clipboard!' : 'Copy code'}
+              </Button>
+            </div>
           )}
-
-          {error && <p className="text-sm text-red-500">{error}</p>}
-          {success && <p className="text-sm text-emerald-500">{success}</p>}
-
-          <Button className="h-11" onClick={handleAdd} disabled={loading}>
-            {loading ? <Loader2 className="size-4 animate-spin" /> : mode === 'guest' ? 'Add member' : 'Send invite'}
-          </Button>
         </div>
       </div>
     </div>
@@ -865,10 +875,7 @@ function RemoveMembersModal({
 function NewGroupModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
   const [name, setName] = useState('')
   const [guests, setGuests] = useState<string[]>([])
-  const [inviteEmails, setInviteEmails] = useState<string[]>([])
   const [guestInput, setGuestInput] = useState('')
-  const [emailInput, setEmailInput] = useState('')
-  const [addMode, setAddMode] = useState<'guest' | 'invite'>('guest')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -887,14 +894,6 @@ function NewGroupModal({ onClose, onCreated }: { onClose: () => void; onCreated:
     }
   }
 
-  function addEmail() {
-    const trimmed = emailInput.trim().toLowerCase()
-    if (trimmed && !inviteEmails.includes(trimmed)) {
-      setInviteEmails((e) => [...e, trimmed])
-      setEmailInput('')
-    }
-  }
-
   async function handleCreate() {
     if (!name) { setError('Group name is required'); return }
     setLoading(true)
@@ -904,7 +903,7 @@ function NewGroupModal({ onClose, onCreated }: { onClose: () => void; onCreated:
       const filteredGuests = stored?.name
         ? guests.filter((g) => g.toLowerCase() !== stored.name.toLowerCase())
         : guests
-      await createGroup(name, 'wallet', filteredGuests, inviteEmails)
+      await createGroup(name, 'wallet', filteredGuests)
       onCreated()
       onClose()
     } catch (err: any) {
@@ -928,54 +927,27 @@ function NewGroupModal({ onClose, onCreated }: { onClose: () => void; onCreated:
 
           {/* Add members section */}
           <div className="mt-2">
-            <p className="text-sm font-medium text-foreground mb-2">Add members</p>
-            <div className="flex items-center justify-between rounded-xl bg-muted p-1 mb-3">
-              <button
-                onClick={() => setAddMode('guest')}
-                className={cn('flex-1 rounded-lg py-2 text-sm font-medium transition-all', addMode === 'guest' && 'bg-card shadow-sm')}
-              >
-                <User className="mr-1 inline size-3.5" /> By name
-              </button>
-              <button
-                onClick={() => setAddMode('invite')}
-                className={cn('flex-1 rounded-lg py-2 text-sm font-medium transition-all', addMode === 'invite' && 'bg-card shadow-sm')}
-              >
-                <Mail className="mr-1 inline size-3.5" /> By email
-              </button>
-            </div>
+            <p className="text-sm font-medium text-foreground mb-1">Add initial members</p>
+            <p className="text-xs text-muted-foreground mb-3">
+              Add friends by name. A unique 6-digit Join Code will also be generated so others can join from their account!
+            </p>
 
-            {addMode === 'guest' ? (
-              <div className="flex gap-2">
-                <Input
-                  placeholder="Member name"
-                  value={guestInput}
-                  onChange={(e) => setGuestInput(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addGuest())}
-                  className="flex-1"
-                />
-                <Button type="button" variant="outline" onClick={addGuest} className="shrink-0">
-                  <Plus className="size-4" />
-                </Button>
-              </div>
-            ) : (
-              <div className="flex gap-2">
-                <Input
-                  type="email"
-                  placeholder="Email address"
-                  value={emailInput}
-                  onChange={(e) => setEmailInput(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addEmail())}
-                  className="flex-1"
-                />
-                <Button type="button" variant="outline" onClick={addEmail} className="shrink-0">
-                  <Plus className="size-4" />
-                </Button>
-              </div>
-            )}
+            <div className="flex gap-2">
+              <Input
+                placeholder="Member name (e.g. Rahul)"
+                value={guestInput}
+                onChange={(e) => setGuestInput(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addGuest())}
+                className="flex-1"
+              />
+              <Button type="button" variant="outline" onClick={addGuest} className="shrink-0">
+                <Plus className="size-4" />
+              </Button>
+            </div>
           </div>
 
           {/* Tags showing added people */}
-          {(guests.length > 0 || inviteEmails.length > 0) && (
+          {guests.length > 0 && (
             <div className="flex flex-wrap gap-2">
               {guests.map((g) => (
                 <span key={`g-${g}`} className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-3 py-1 text-xs font-medium text-emerald-400">
@@ -985,19 +957,11 @@ function NewGroupModal({ onClose, onCreated }: { onClose: () => void; onCreated:
                   </button>
                 </span>
               ))}
-              {inviteEmails.map((e) => (
-                <span key={`e-${e}`} className="inline-flex items-center gap-1 rounded-full bg-blue-500/15 px-3 py-1 text-xs font-medium text-blue-400">
-                  <Mail className="size-3" /> {e}
-                  <button onClick={() => setInviteEmails((es) => es.filter((x) => x !== e))} className="ml-0.5 hover:text-red-400">
-                    <X className="size-3" />
-                  </button>
-                </span>
-              ))}
             </div>
           )}
 
           <p className="text-xs text-muted-foreground">
-            Add members directly by name or invite them by email. You + {guests.length + inviteEmails.length} {guests.length + inviteEmails.length === 1 ? 'member' : 'members'}.
+            You + {guests.length} {guests.length === 1 ? 'member' : 'members'}.
           </p>
 
           {error && <p className="text-sm text-red-500">{error}</p>}
@@ -1373,6 +1337,7 @@ function GroupView({
       {addPersonOpen && (
         <AddPersonModal
           groupId={groupId}
+          joinCode={group?.join_code}
           onClose={() => setAddPersonOpen(false)}
           onAdded={loadAll}
         />
@@ -1397,118 +1362,7 @@ function GroupView({
 // Notification bell dropdown
 // ---------------------------------------------------------------------------
 function NotificationBell() {
-  const [invites, setInvites] = useState<PendingInvite[]>([])
-  const [open, setOpen] = useState(false)
-  const [loading, setLoading] = useState(false)
-  const ref = useRef<HTMLDivElement>(null)
-
-  async function load() {
-    try {
-      const data = await fetchNotifications()
-      setInvites(data.invites)
-    } catch {
-      // Ignore errors — non-critical
-    }
-  }
-
-  useEffect(() => {
-    load()
-    const interval = setInterval(load, 30000) // poll every 30s
-    return () => clearInterval(interval)
-  }, [])
-
-  // Close dropdown when clicking outside
-  useEffect(() => {
-    function handleClick(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
-    }
-    document.addEventListener('mousedown', handleClick)
-    return () => document.removeEventListener('mousedown', handleClick)
-  }, [])
-
-  async function handleAccept(token: string) {
-    setLoading(true)
-    try {
-      await acceptInvite(token)
-      setInvites((inv) => inv.filter((i) => i.token !== token))
-      // Force page reload to refresh groups
-      window.location.reload()
-    } catch {
-      // Ignore
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  async function handleDecline(token: string) {
-    setLoading(true)
-    try {
-      await declineInvite(token)
-      setInvites((inv) => inv.filter((i) => i.token !== token))
-    } catch {
-      // Ignore
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  return (
-    <div ref={ref} className="relative">
-      <button
-        aria-label="Notifications"
-        onClick={() => setOpen(!open)}
-        className="relative rounded-lg p-2 text-muted-foreground hover:bg-muted"
-      >
-        <Bell className="size-4" />
-        {invites.length > 0 && (
-          <span className="absolute -right-0.5 -top-0.5 grid size-4 place-items-center rounded-full bg-red-500 text-[10px] font-bold text-white">
-            {invites.length}
-          </span>
-        )}
-      </button>
-
-      {open && (
-        <div className="absolute right-0 top-full z-30 mt-2 w-80 rounded-xl border border-border bg-card p-3 shadow-xl">
-          {invites.length === 0 ? (
-            <p className="py-4 text-center text-sm text-muted-foreground">No pending invitations</p>
-          ) : (
-            <div className="flex flex-col gap-2">
-              <p className="px-1 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                Pending invitations
-              </p>
-              {invites.map((inv) => (
-                <div key={inv.id} className="rounded-lg border border-border bg-background p-3">
-                  <p className="text-sm font-semibold text-foreground">{inv.group_name}</p>
-                  <p className="mt-0.5 text-xs text-muted-foreground">
-                    Invited by {inv.inviter_name || 'someone'}
-                  </p>
-                  <div className="mt-2 flex gap-2">
-                    <Button
-                      size="sm"
-                      className="h-7 flex-1 text-xs"
-                      onClick={() => handleAccept(inv.token)}
-                      disabled={loading}
-                    >
-                      Accept
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="h-7 flex-1 text-xs"
-                      onClick={() => handleDecline(inv.token)}
-                      disabled={loading}
-                    >
-                      Decline
-                    </Button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  )
+  return null
 }
 
 // ---------------------------------------------------------------------------

@@ -76,6 +76,16 @@ router.post('/:groupId/expenses', requireGroupMember, async (req, res) => {
     }
 
     await client.query('COMMIT');
+
+    const io = req.app.get('io');
+    if (io) {
+      io.to(`group:${groupId}`).emit('expense-created', {
+        groupId: Number(groupId),
+        expense,
+        splits: finalSplits,
+      });
+    }
+
     res.status(201).json({ expense, splits: finalSplits });
   } catch (err) {
     await client.query('ROLLBACK');
