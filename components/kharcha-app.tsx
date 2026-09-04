@@ -1233,6 +1233,8 @@ function GroupView({
   const [addPersonOpen, setAddPersonOpen] = useState(false)
   const [removeMembersOpen, setRemoveMembersOpen] = useState(false)
   const [paidKeys, setPaidKeys] = useState<string[]>([])
+  const [keyCopied, setKeyCopied] = useState(false)
+  const [regeneratingKey, setRegeneratingKey] = useState(false)
 
   async function loadAll() {
     setLoading(true)
@@ -1259,6 +1261,72 @@ function GroupView({
   useEffect(() => { loadAll() }, [groupId])
   useEffect(() => { if (tab === 'settle') loadSettlements() }, [tab])
 
+  // Real-time Socket.IO synchronization for this group
+  useEffect(() => {
+    const token = getToken()
+    if (!token) return
+
+    const socket = io(process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000', {
+      auth: { token },
+      transports: ['websocket'],
+    })
+
+    socket.on('connect', () => {
+      socket.emit('join-group', groupId)
+    })
+
+    socket.on('member-joined', (data: { groupId: number; participant: any }) => {
+      if (Number(data.groupId) === Number(groupId)) {
+        loadAll()
+      }
+    })
+
+    socket.on('key-regenerated', (data: { groupId: number; newKey: string }) => {
+      if (Number(data.groupId) === Number(groupId)) {
+        setGroup((prev) => (prev ? { ...prev, join_code: data.newKey } : prev))
+      }
+    })
+
+    socket.on('expense-created', (data: { groupId: number; expense: any }) => {
+      if (Number(data.groupId) === Number(groupId)) {
+        loadAll()
+      }
+    })
+
+    socket.on('settlement-confirmed', (data: { groupId: number }) => {
+      if (Number(data.groupId) === Number(groupId)) {
+        loadAll()
+        if (tab === 'settle') loadSettlements()
+      }
+    })
+
+    socket.on('member-removed', (data: { groupId: number; removedIds: number[] }) => {
+      if (Number(data.groupId) === Number(groupId)) {
+        loadAll()
+      }
+    })
+
+    return () => {
+      socket.emit('leave-group', groupId)
+      socket.disconnect()
+    }
+  }, [groupId, tab])
+
+  async function handleRegenerateKey() {
+    if (!window.confirm("Regenerate join key?\n\nThis will invalidate the current key. Anyone with the old key won't be able to join. Continue?")) {
+      return
+    }
+    setRegeneratingKey(true)
+    try {
+      const res = await regenerateGroupKey(groupId)
+      setGroup((prev) => (prev ? { ...prev, join_code: res.join_code } : prev))
+    } catch (err: any) {
+      alert(err.message || 'Failed to regenerate join key')
+    } finally {
+      setRegeneratingKey(false)
+    }
+  }
+
   if (loading || !group) {
     return <div className="mt-16 flex justify-center"><Loader2 className="size-6 animate-spin text-muted-foreground" /></div>
   }
@@ -1270,6 +1338,7 @@ function GroupView({
 
   const activeSettlementsCount = settlements.length - paidKeys.length
   const activeParticipants = participants.filter((p) => p.status !== 'invited')
+  const isCreator = group.created_by === currentUser.id
 
   return (
     <>
@@ -1282,9 +1351,44 @@ function GroupView({
           <div className="grid size-14 place-items-center rounded-xl bg-accent text-accent-foreground"><Wallet className="size-6" /></div>
           <div>
             <h1 className="text-3xl font-bold tracking-tight text-foreground">{group.name}</h1>
-            <div className="mt-2 flex items-center gap-3">
+            <div className="mt-2 flex flex-wrap items-center gap-3">
               <PeopleStack members={activeParticipants} size="size-6" />
               <span className="text-sm text-muted-foreground">{activeParticipants.length} members</span>
+
+              {/* Join key badge with 1-click copy */}
+              <div className="ml-1 inline-flex items-center gap-1.5 rounded-lg border border-border bg-muted/60 px-2.5 py-1 text-xs">
+                <KeyRound className="size-3 text-muted-foreground" />
+                <span className="text-muted-foreground">Key:</span>
+                <span className="font-mono font-bold tracking-wider text-foreground">
+                  {group.join_code || '------'}
+                </span>
+                <button
+                  onClick={() => {
+                    if (group.join_code) {
+                      navigator.clipboard.writeText(group.join_code)
+                      setKeyCopied(true)
+                      setTimeout(() => setKeyCopied(false), 2000)
+                    }
+                  }}
+                  title="Copy join key"
+                  className="ml-0.5 rounded p-0.5 text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  {keyCopied ? <Check className="size-3 text-emerald-400" /> : <Copy className="size-3" />}
+                </button>
+              </div>
+
+              {/* Regenerate key (visible only to group creator) */}
+              {isCreator && (
+                <button
+                  onClick={handleRegenerateKey}
+                  disabled={regeneratingKey}
+                  title="Regenerate join key (invalidates previous key)"
+                  className="text-xs text-muted-foreground hover:text-primary transition-colors flex items-center gap-1"
+                >
+                  {regeneratingKey ? <Loader2 className="size-3 animate-spin" /> : <Sparkles className="size-3" />}
+                  Regenerate
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -1481,6 +1585,7 @@ export function KharchaApp() {
   const [groupsLoading, setGroupsLoading] = useState(true)
   const [activeGroupId, setActiveGroupId] = useState<number | null>(null)
   const [newGroupOpen, setNewGroupOpen] = useState(false)
+  const [joinGroupOpen, setJoinGroupOpen] = useState(false)
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -1581,6 +1686,7 @@ export function KharchaApp() {
             loading={groupsLoading}
             onOpenGroup={setActiveGroupId}
             onNewGroup={() => setNewGroupOpen(true)}
+            onJoinGroup={() => setJoinGroupOpen(true)}
           />
         ) : (
           <GroupView groupId={activeGroupId} currentUser={user} onBack={() => setActiveGroupId(null)} />
@@ -1589,6 +1695,16 @@ export function KharchaApp() {
 
       {newGroupOpen && (
         <NewGroupModal onClose={() => setNewGroupOpen(false)} onCreated={() => loadGroups(user)} />
+      )}
+
+      {joinGroupOpen && (
+        <JoinGroupModal
+          onClose={() => setJoinGroupOpen(false)}
+          onJoined={(joinedId) => {
+            loadGroups(user)
+            setActiveGroupId(joinedId)
+          }}
+        />
       )}
     </main>
   )
