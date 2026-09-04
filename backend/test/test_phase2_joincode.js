@@ -52,6 +52,18 @@ async function testPhase2() {
     throw new Error('FAIL: Expected exhaustion error when all attempts collide');
   }
 
+  // 4. Test forced low value with leading zero padding
+  const crypto = require('crypto');
+  const originalRandomInt = crypto.randomInt;
+  crypto.randomInt = () => 42;
+  const mockClientPass = { query: async () => ({ rows: [] }) };
+  const lowCode = await generateJoinCode(mockClientPass);
+  crypto.randomInt = originalRandomInt;
+  if (lowCode !== '000042') {
+    throw new Error(`FAIL: Expected '000042', got '${lowCode}'`);
+  }
+  console.log(`   Forced low value confirmed: 42 correctly padded to '${lowCode}'`);
+
   console.log('🎉 Phase 2 Join Code Generator Verification PASSED!');
   process.exit(0);
 }

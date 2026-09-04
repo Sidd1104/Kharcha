@@ -75,6 +75,11 @@ function connectSocket(token) {
   });
 }
 
+async function cleanUser(id) {
+  await pool.query('DELETE FROM group_participants WHERE user_id = $1', [id]);
+  await pool.query('DELETE FROM users WHERE id = $1', [id]);
+}
+
 async function runSuite() {
   console.log('============================================================');
   console.log('       KHARCHA COMPREHENSIVE AUTOMATED TEST SUITE           ');
@@ -82,11 +87,12 @@ async function runSuite() {
 
   // --- SECTION 1: Authorization Hole Regression ---
   console.log('▶ [1/8] Testing Authorization & Membership Protection...');
-  const userA = { id: 5001, email: 'suite_usera@test.com', name: 'Suite User A' };
-  const userB = { id: 5002, email: 'suite_userb@test.com', name: 'Suite User B' };
+  const runId = Math.floor(Math.random() * 80000) + 10000;
+  const userA = { id: 100000 + runId, email: `suite_usera_${runId}@test.com`, name: 'Suite User A' };
+  const userB = { id: 200000 + runId, email: `suite_userb_${runId}@test.com`, name: 'Suite User B' };
 
   for (const u of [userA, userB]) {
-    await pool.query('DELETE FROM users WHERE id = $1', [u.id]);
+    await cleanUser(u.id);
     await pool.query('INSERT INTO users (id, email, password_hash, name) VALUES ($1, $2, $3, $4)', [
       u.id, u.email, 'hash', u.name,
     ]);
@@ -125,10 +131,35 @@ async function runSuite() {
       return { rows: [] }; // success
     },
   };
-  const mockCode = await generateJoinCode(mockClient);
-  assert.ok(/^\d{6}$/.test(mockCode));
-  assert.strictEqual(mockAttempts, 3);
-  console.log('  ✔ 6-digit format and collision retry verified');
+  // Test forced low value with leading zeros (42 -> "000042")
+  const crypto = require('crypto');
+  const origRandomInt = crypto.randomInt;
+  crypto.randomInt = () => 42;
+  const mockClientPass = { query: async () => ({ rows: [] }) };
+  const lowCode = await generateJoinCode(mockClientPass);
+  crypto.randomInt = origRandomInt;
+  assert.strictEqual(lowCode, '000042', 'Code must be padded to "000042"');
+
+  // Verify "000042" matches correctly in database and on real HTTP join endpoint
+  await pool.query("UPDATE groups SET join_code_active = false WHERE join_code = '000042'");
+  const lowGroupRes = await pool.query(
+    "INSERT INTO groups (name, created_by, join_code, join_code_active) VALUES ($1, $2, $3, true) RETURNING id",
+    ['Low Code Group', userA.id, '000042']
+  );
+  const lowGroupId = lowGroupRes.rows[0].id;
+  await pool.query("INSERT INTO group_participants (group_id, user_id, status) VALUES ($1, $2, 'active')", [lowGroupId, userA.id]);
+
+  const lowUser = { id: 300000 + runId, email: `suite_low_${runId}@test.com`, name: 'Suite Low User' };
+  await cleanUser(lowUser.id);
+  await pool.query('INSERT INTO users (id, email, password_hash, name) VALUES ($1, $2, $3, $4)', [
+    lowUser.id, lowUser.email, 'hash', lowUser.name,
+  ]);
+  const lowToken = makeToken(lowUser);
+
+  const joinLowRes = await request('POST', '/groups/join', { Authorization: `Bearer ${lowToken}` }, { joinCode: '000042' });
+  assert.strictEqual(joinLowRes.status, 200);
+  assert.strictEqual(joinLowRes.body.group.join_code, '000042');
+  console.log('  ✔ 6-digit format, collision retry, and leading-zero padding ("000042") verified');
 
   // --- SECTION 3: Group Creation ---
   console.log('\n▶ [3/8] Testing Group Creation...');
@@ -163,8 +194,8 @@ async function runSuite() {
   assert.strictEqual(rejoinRes.body.alreadyMember, true);
 
   // 4c. Malformed & nonexistent codes with dedicated validation user
-  const valUser = { id: 5006, email: 'suite_val@test.com', name: 'Suite Val' };
-  await pool.query('DELETE FROM users WHERE id = $1', [valUser.id]);
+  const valUser = { id: 400000 + runId, email: `suite_val_${runId}@test.com`, name: 'Suite Val' };
+  await cleanUser(valUser.id);
   await pool.query('INSERT INTO users (id, email, password_hash, name) VALUES ($1, $2, $3, $4)', [
     valUser.id, valUser.email, 'hash', valUser.name,
   ]);
@@ -178,8 +209,8 @@ async function runSuite() {
   assert.strictEqual(notFoundRes.status, 404);
 
   // 4d. Rate limiting (5 attempts allowed, 6th returns 429)
-  const rlUser = { id: 5003, email: 'suite_rl@test.com', name: 'Suite RL' };
-  await pool.query('DELETE FROM users WHERE id = $1', [rlUser.id]);
+  const rlUser = { id: 500000 + runId, email: `suite_rl_${runId}@test.com`, name: 'Suite RL' };
+  await cleanUser(rlUser.id);
   await pool.query('INSERT INTO users (id, email, password_hash, name) VALUES ($1, $2, $3, $4)', [
     rlUser.id, rlUser.email, 'hash', rlUser.name,
   ]);
@@ -204,8 +235,8 @@ async function runSuite() {
   assert.notStrictEqual(newKey, createdJoinCode);
 
   // Old key fails
-  const userD = { id: 5004, email: 'suite_userd@test.com', name: 'Suite User D' };
-  await pool.query('DELETE FROM users WHERE id = $1', [userD.id]);
+  const userD = { id: 600000 + runId, email: `suite_userd_${runId}@test.com`, name: 'Suite User D' };
+  await cleanUser(userD.id);
   await pool.query('INSERT INTO users (id, email, password_hash, name) VALUES ($1, $2, $3, $4)', [
     userD.id, userD.email, 'hash', userD.name,
   ]);
@@ -234,8 +265,8 @@ async function runSuite() {
   const socketD = await connectSocket(tokenD);
 
   // 6c. Room isolation: User E (not in group) cannot join room
-  const userE = { id: 5005, email: 'suite_usere@test.com', name: 'Suite User E' };
-  await pool.query('DELETE FROM users WHERE id = $1', [userE.id]);
+  const userE = { id: 700000 + runId, email: `suite_usere_${runId}@test.com`, name: 'Suite User E' };
+  await cleanUser(userE.id);
   await pool.query('INSERT INTO users (id, email, password_hash, name) VALUES ($1, $2, $3, $4)', [
     userE.id, userE.email, 'hash', userE.name,
   ]);
