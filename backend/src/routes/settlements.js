@@ -1,13 +1,14 @@
 const express = require('express');
 const { pool } = require('../db');
 const { requireAuth } = require('../middleware/auth');
+const { requireGroupMember } = require('../middleware/membership');
 const { computeBalances, computeSettlements } = require('../utils/settlement');
 
 const router = express.Router();
 router.use(requireAuth);
 
 // GET /groups/:groupId/balances — net balance per participant (positive = owed to them)
-router.get('/:groupId/balances', async (req, res) => {
+router.get('/:groupId/balances', requireGroupMember, async (req, res) => {
   const { groupId } = req.params;
   try {
     const expensesResult = await pool.query(
@@ -48,7 +49,7 @@ router.get('/:groupId/balances', async (req, res) => {
 });
 
 // GET /groups/:groupId/settlements — minimal transaction list to settle the group
-router.get('/:groupId/settlements', async (req, res) => {
+router.get('/:groupId/settlements', requireGroupMember, async (req, res) => {
   const { groupId } = req.params;
   try {
     const expensesResult = await pool.query(
@@ -92,7 +93,7 @@ router.get('/:groupId/settlements', async (req, res) => {
 
 // POST /groups/:groupId/settlements/confirm — record a settlement as paid
 // body: { fromParticipantId, toParticipantId, amount }
-router.post('/:groupId/settlements/confirm', async (req, res) => {
+router.post('/:groupId/settlements/confirm', requireGroupMember, async (req, res) => {
   const { groupId } = req.params;
   const { fromParticipantId, toParticipantId, amount } = req.body;
 
