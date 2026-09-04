@@ -71,7 +71,6 @@ async function run() {
 
     // 2. Creator creates a group with a guest named "Phase4 Joiner"
     const createRes = await request(
-      server,
       'POST',
       '/groups',
       { Authorization: `Bearer ${creatorToken}` },
@@ -86,7 +85,6 @@ async function run() {
     // 3. Test malformed join codes (400)
     for (const badCode of ['', '123', '12345', '1234567', 'abc123', 'abcdef']) {
       const res = await request(
-        server,
         'POST',
         '/groups/join',
         { Authorization: `Bearer ${joinerToken}` },
@@ -99,7 +97,6 @@ async function run() {
 
     // 4. Test non-existent join code (404)
     const nonExistentRes = await request(
-      server,
       'POST',
       '/groups/join',
       { Authorization: `Bearer ${joinerToken}` },
@@ -119,7 +116,6 @@ async function run() {
       [creatorUser.id]
     );
     const inactiveRes = await request(
-      server,
       'POST',
       '/groups/join',
       { Authorization: `Bearer ${joinerToken}` },
@@ -134,7 +130,6 @@ async function run() {
 
     // 6. Test successful join for new member
     const joinRes = await request(
-      server,
       'POST',
       '/groups/join',
       { Authorization: `Bearer ${joinerToken}` },
@@ -163,7 +158,6 @@ async function run() {
 
     // 7. Test idempotency (already a member re-entering code)
     const reJoinRes = await request(
-      server,
       'POST',
       '/groups/join',
       { Authorization: `Bearer ${joinerToken}` },
@@ -182,7 +176,6 @@ async function run() {
       [group.id, invitedUser.id, invitedUser.email]
     );
     const inviteJoinRes = await request(
-      server,
       'POST',
       '/groups/join',
       { Authorization: `Bearer ${invitedToken}` },
@@ -204,7 +197,6 @@ async function run() {
     console.log('Testing rate limiter (5 allowed, 6th should return 429)...');
     for (let i = 1; i <= 5; i++) {
       const rlRes = await request(
-        server,
         'POST',
         '/groups/join',
         { Authorization: `Bearer ${rateLimitToken}` },
@@ -216,7 +208,6 @@ async function run() {
       );
     }
     const blockedRes = await request(
-      server,
       'POST',
       '/groups/join',
       { Authorization: `Bearer ${rateLimitToken}` },
@@ -231,7 +222,6 @@ async function run() {
 
     console.log('\nALL PHASE 4 TESTS PASSED SUCCESSFULLY!');
   } finally {
-    server.close();
   }
 }
 
