@@ -2,8 +2,8 @@
 
 import { useEffect, useState, useRef } from 'react'
 import {
-  ArrowLeft, ArrowRight, Bell, Car, Check, ChevronDown, Home, Loader2, Lock, Mail, Plus,
-  Receipt, ShieldCheck, SlidersHorizontal, Sparkles, User, UserPlus, Utensils, Wallet, X,
+  AlertTriangle, ArrowLeft, ArrowRight, Bell, Car, Check, ChevronDown, Home, Loader2, Lock, Mail, Plus,
+  Receipt, ShieldCheck, SlidersHorizontal, Sparkles, Trash2, User, UserMinus, UserPlus, Utensils, Wallet, X,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -17,7 +17,7 @@ import {
   confirmSettlement, createGroup, declineInvite, fetchBalances,
   fetchExpenses, fetchGroupDetail, fetchGroups, fetchNotifications, fetchSettlements,
   getGoogleAuthUrl, getStoredUser, getToken, loginUser, quickGoogleLogin, registerUser,
-  sendInvite, setSession,
+  removeParticipants, sendInvite, setSession,
 } from '@/lib/api'
 
 const CATEGORY_ICONS: Record<string, any> = {
@@ -618,6 +618,248 @@ function AddPersonModal({
 }
 
 // ---------------------------------------------------------------------------
+// Remove Members modal — multi-select registered members to remove
+// ---------------------------------------------------------------------------
+function RemoveMembersModal({
+  groupId,
+  groupName,
+  participants,
+  currentUser,
+  creatorId,
+  onClose,
+  onRemoved,
+}: {
+  groupId: number
+  groupName: string
+  participants: Participant[]
+  currentUser: AuthUser
+  creatorId?: number
+  onClose: () => void
+  onRemoved: () => void
+}) {
+  const [selectedIds, setSelectedIds] = useState<number[]>([])
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  // Filter out creator from selection — creator can never be removed
+  const isCreatorParticipant = (p: Participant) =>
+    Boolean(p.is_creator || (creatorId && p.user_id === creatorId))
+
+  const removableParticipants = participants.filter((p) => !isCreatorParticipant(p))
+
+  const toggleSelect = (pId: number) => {
+    setError(null)
+    setSelectedIds((prev) =>
+      prev.includes(pId) ? prev.filter((id) => id !== pId) : [...prev, pId]
+    )
+  }
+
+  const handleSelectAll = () => {
+    setError(null)
+    if (selectedIds.length === removableParticipants.length) {
+      setSelectedIds([])
+    } else {
+      setSelectedIds(removableParticipants.map((p) => p.participant_id))
+    }
+  }
+
+  // Check if any selected participant has active expenses
+  const selectedWithExpenses = participants.filter(
+    (p) =>
+      selectedIds.includes(p.participant_id) &&
+      ((p.expense_paid_count || 0) > 0 || (p.split_count || 0) > 0)
+  )
+
+  async function handleRemove() {
+    if (selectedIds.length === 0) return
+    setError(null)
+    setLoading(true)
+    try {
+      await removeParticipants(groupId, selectedIds)
+      onRemoved()
+      onClose()
+    } catch (err: any) {
+      setError(err.message || 'Failed to remove member(s)')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-foreground/40 p-4 backdrop-blur-sm">
+      <div className="w-full max-w-lg rounded-xl border border-border bg-card p-6 shadow-2xl animate-in fade-in zoom-in-95 duration-150">
+        <div className="flex items-start justify-between">
+          <div>
+            <h2 className="text-xl font-bold text-foreground">Remove members</h2>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Select members you want to remove from <span className="font-semibold text-foreground">{groupName}</span>.
+            </p>
+          </div>
+          <button
+            aria-label="Close"
+            onClick={onClose}
+            className="rounded-lg p-2 text-muted-foreground hover:bg-muted"
+          >
+            <X className="size-4" />
+          </button>
+        </div>
+
+        {/* Selection Bar */}
+        {removableParticipants.length > 0 && (
+          <div className="mt-4 flex items-center justify-between border-b border-border pb-3 text-xs">
+            <span className="text-muted-foreground">
+              {selectedIds.length} of {removableParticipants.length} selected
+            </span>
+            <button
+              type="button"
+              onClick={handleSelectAll}
+              className="font-medium text-primary hover:underline"
+            >
+              {selectedIds.length === removableParticipants.length ? 'Deselect all' : 'Select all'}
+            </button>
+          </div>
+        )}
+
+        {/* Members List */}
+        <div className="mt-3 max-h-72 space-y-2 overflow-y-auto pr-1">
+          {participants.length === 0 ? (
+            <p className="p-4 text-center text-sm text-muted-foreground">No members found in this group.</p>
+          ) : (
+            participants.map((p) => {
+              const isCreator = isCreatorParticipant(p)
+              const isSelected = selectedIds.includes(p.participant_id)
+              const isCurrentUser = p.user_id === currentUser.id
+              const hasExpenses = (p.expense_paid_count || 0) > 0 || (p.split_count || 0) > 0
+
+              return (
+                <div
+                  key={p.participant_id}
+                  onClick={() => {
+                    if (!isCreator) toggleSelect(p.participant_id)
+                  }}
+                  className={cn(
+                    'flex items-center justify-between rounded-xl border p-3 transition-all',
+                    isCreator
+                      ? 'border-border/60 bg-muted/30 opacity-70 cursor-not-allowed'
+                      : isSelected
+                      ? 'border-rose-500/50 bg-rose-500/10 cursor-pointer'
+                      : 'border-border bg-card/60 hover:border-zinc-700 hover:bg-muted/40 cursor-pointer'
+                  )}
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <Avatar className="size-9 shrink-0">
+                      <AvatarFallback className="bg-secondary text-secondary-foreground text-xs font-semibold">
+                        {initialsOf(p.name)}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-semibold text-sm text-foreground truncate">
+                          {p.name}
+                        </span>
+                        {isCurrentUser && (
+                          <span className="text-xs text-muted-foreground">(you)</span>
+                        )}
+                        {isCreator && (
+                          <span className="rounded-md bg-amber-500/15 px-2 py-0.5 text-[10px] font-semibold text-amber-400">
+                            Creator
+                          </span>
+                        )}
+                        {p.status === 'invited' && (
+                          <span className="rounded-md bg-blue-500/15 px-2 py-0.5 text-[10px] font-semibold text-blue-400">
+                            Invited
+                          </span>
+                        )}
+                        {hasExpenses && !isCreator && (
+                          <span className="rounded-md bg-zinc-800 px-2 py-0.5 text-[10px] font-medium text-zinc-400">
+                            In expenses
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-xs text-muted-foreground truncate">
+                        {isCreator
+                          ? 'Group creator cannot be removed'
+                          : p.email
+                          ? p.email
+                          : p.status === 'invited'
+                          ? 'Invite pending'
+                          : 'Group member'}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Selection Box / Lock Icon */}
+                  <div className="ml-3 shrink-0">
+                    {isCreator ? (
+                      <div title="Group creator cannot be removed" className="p-1 text-muted-foreground">
+                        <Lock className="size-4" />
+                      </div>
+                    ) : (
+                      <div
+                        className={cn(
+                          'grid size-5 place-items-center rounded border transition-colors',
+                          isSelected
+                            ? 'border-rose-500 bg-rose-500 text-white'
+                            : 'border-zinc-700 bg-transparent'
+                        )}
+                      >
+                        {isSelected && <Check className="size-3.5 stroke-[3]" />}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )
+            })
+          )}
+        </div>
+
+        {/* Warning if selected members have expenses */}
+        {selectedWithExpenses.length > 0 && (
+          <div className="mt-3 flex items-start gap-2.5 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-300">
+            <AlertTriangle className="size-4 shrink-0 mt-0.5 text-amber-400" />
+            <p>
+              <span className="font-semibold">{selectedWithExpenses.map((p) => p.name).join(', ')}</span>{' '}
+              {selectedWithExpenses.length === 1 ? 'has' : 'have'} recorded expenses or splits.
+              Removing will delete expenses paid by them and rebalance shared splits.
+            </p>
+          </div>
+        )}
+
+        {/* Error message */}
+        {error && <p className="mt-3 text-sm text-red-400">{error}</p>}
+
+        {/* Footer buttons */}
+        <div className="mt-5 flex items-center justify-end gap-2.5">
+          <Button variant="outline" onClick={onClose} disabled={loading}>
+            Cancel
+          </Button>
+          <Button
+            onClick={handleRemove}
+            disabled={selectedIds.length === 0 || loading}
+            className="bg-rose-600 font-medium text-white hover:bg-rose-700 disabled:opacity-50"
+          >
+            {loading ? (
+              <>
+                <Loader2 className="mr-1.5 size-4 animate-spin" /> Removing...
+              </>
+            ) : (
+              <>
+                <Trash2 className="mr-1.5 size-4" />
+                {selectedIds.length > 1
+                  ? `Remove ${selectedIds.length} members`
+                  : selectedIds.length === 1
+                  ? 'Remove member'
+                  : 'Remove selected'}
+              </>
+            )}
+          </Button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // New group modal — supports members by name + email invites
 // ---------------------------------------------------------------------------
 function NewGroupModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
@@ -921,6 +1163,7 @@ function GroupView({
   const [loading, setLoading] = useState(true)
   const [expenseOpen, setExpenseOpen] = useState(false)
   const [addPersonOpen, setAddPersonOpen] = useState(false)
+  const [removeMembersOpen, setRemoveMembersOpen] = useState(false)
   const [paidKeys, setPaidKeys] = useState<string[]>([])
 
   async function loadAll() {
@@ -977,9 +1220,12 @@ function GroupView({
             </div>
           </div>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Button variant="outline" onClick={() => setAddPersonOpen(true)}>
             <UserPlus className="mr-1 size-4" /> Add member
+          </Button>
+          <Button variant="outline" onClick={() => setRemoveMembersOpen(true)}>
+            <UserMinus className="mr-1 size-4" /> Remove member
           </Button>
           <Button variant="outline" onClick={() => setExpenseOpen(true)}><Plus className="mr-1 size-4" /> Expense</Button>
           <Button onClick={() => setTab('settle')} className="bg-primary text-primary-foreground hover:bg-primary/90">
