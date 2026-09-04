@@ -4,7 +4,6 @@ const rateLimit = require('express-rate-limit');
 const { pool } = require('../db');
 const { requireAuth } = require('../middleware/auth');
 const { requireGroupMember } = require('../middleware/membership');
-const { sendInviteEmail } = require('../utils/email');
 const { generateJoinCode } = require('../utils/joinCode');
 
 const router = express.Router();

@@ -108,6 +108,8 @@ export type Group = {
   member_count: string
   expense_count: string
   created_by?: number
+  join_code?: string
+  join_code_active?: boolean
 }
 
 export const fetchGroups = () => request<{ groups: Group[] }>('/groups')
@@ -115,12 +117,22 @@ export const fetchGroups = () => request<{ groups: Group[] }>('/groups')
 export const createGroup = (
   name: string,
   icon?: string,
-  guests?: string[],
-  inviteEmails?: string[]
+  guests?: string[]
 ) =>
   request<{ group: Group }>('/groups', {
     method: 'POST',
-    body: JSON.stringify({ name, icon, guests, inviteEmails }),
+    body: JSON.stringify({ name, icon, guests }),
+  })
+
+export const joinGroup = (joinCode: string) =>
+  request<{ group: Group; participant: Participant; alreadyMember: boolean; message: string }>('/groups/join', {
+    method: 'POST',
+    body: JSON.stringify({ joinCode }),
+  })
+
+export const regenerateGroupKey = (groupId: number) =>
+  request<{ groupId: number; join_code: string; message: string }>(`/groups/${groupId}/regenerate-key`, {
+    method: 'POST',
   })
 
 export const fetchGroupDetail = (groupId: number) =>
@@ -132,11 +144,9 @@ export const addGuest = (groupId: number, name: string) =>
     body: JSON.stringify({ name }),
   })
 
-export const sendInvite = (groupId: number, email: string) =>
-  request<{ participant: Participant }>(`/groups/${groupId}/participants/invite`, {
-    method: 'POST',
-    body: JSON.stringify({ email }),
-  })
+export const sendInvite = async (groupId: number, email: string) => {
+  throw new Error('Email invites are deprecated. Please share the group Join Code instead.')
+}
 
 export const removeParticipants = (groupId: number, participantIds: number[]) =>
   request<{ success: boolean; removedCount: number; removedIds: number[]; message: string }>(
@@ -231,5 +241,6 @@ export type PendingInvite = {
   inviter_name: string
 }
 
-export const fetchNotifications = () =>
-  request<{ invites: PendingInvite[] }>('/notifications')
+export const fetchNotifications = async (): Promise<{ invites: PendingInvite[] }> => ({
+  invites: [],
+})
