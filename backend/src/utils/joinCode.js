@@ -10,8 +10,8 @@ const MAX_RETRIES = 10;
  */
 async function generateJoinCode(client = pool) {
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-    // Generate random 6-digit number in [100000, 1000000)
-    const code = crypto.randomInt(100000, 1000000).toString().padStart(6, '0');
+    // Generate random 6-digit number in [0, 1000000), padded with leading zeros
+    const code = crypto.randomInt(0, 1000000).toString().padStart(6, '0');
 
     const result = await client.query(
       'SELECT 1 FROM groups WHERE join_code = $1 AND join_code_active = true',
