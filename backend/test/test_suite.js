@@ -26,6 +26,7 @@ if (!process.env.JWT_SECRET) {
   throw new Error('FATAL: JWT_SECRET environment variable is not set. Refusing to run tests with an insecure or missing secret.');
 }
 const JWT_SECRET = process.env.JWT_SECRET;
+const BASE_URL = 'http://localhost:4000';
 
 function makeToken(user) {
   return jwt.sign({ userId: user.id, email: user.email, name: user.name }, JWT_SECRET, { expiresIn: '1h' });
