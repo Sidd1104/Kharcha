@@ -5,6 +5,7 @@ require('dotenv').config();
 if (!process.env.JWT_SECRET) {
   throw new Error('FATAL: JWT_SECRET environment variable is not set. The server refuses to start with an insecure configuration.');
 }
+// Connected to PostgreSQL via DATABASE_URL
 const http = require('http');
 const express = require('express');
 const cors = require('cors');
