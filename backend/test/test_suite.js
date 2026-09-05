@@ -251,7 +251,44 @@ async function runSuite() {
   // New key succeeds
   const newKeyRes = await request('POST', '/groups/join', { Authorization: `Bearer ${tokenD}` }, { joinCode: newKey });
   assert.strictEqual(newKeyRes.status, 200);
-  console.log('  ✔ Creator-only key regeneration verified; old key invalidated, new key active');
+
+  // 5b. Partial Unique Index: Code reuse across deactivated vs active groups
+  const recycledCode = '777777';
+  await pool.query("DELETE FROM groups WHERE join_code = $1", [recycledCode]);
+
+  // Insert an inactive group row holding the code
+  await pool.query(
+    "INSERT INTO groups (name, created_by, join_code, join_code_active) VALUES ($1, $2, $3, false)",
+    ['Deactivated Code Group', userA.id, recycledCode]
+  );
+
+  // generateJoinCode sees '777777' is not active, so candidate is considered free
+  const origRandomInt2 = crypto.randomInt;
+  crypto.randomInt = () => 777777;
+  const candidateCode = await generateJoinCode(pool);
+  crypto.randomInt = origRandomInt2;
+  assert.strictEqual(candidateCode, recycledCode, 'Candidate code should match deactivated code');
+
+  // Second active group reuses the deactivated code without constraint violation
+  const gActiveRes = await pool.query(
+    "INSERT INTO groups (name, created_by, join_code, join_code_active) VALUES ($1, $2, $3, true) RETURNING id, join_code",
+    ['Second Active Group Reusing Code', userA.id, candidateCode]
+  );
+  assert.strictEqual(gActiveRes.rows[0].join_code, recycledCode, 'Second group successfully reused deactivated code');
+
+  // Verify that attempting to activate a THIRD group with the SAME code throws unique constraint violation
+  let partialConstraintCaught = false;
+  try {
+    await pool.query(
+      "INSERT INTO groups (name, created_by, join_code, join_code_active) VALUES ($1, $2, $3, true)",
+      ['Third Group Conflicting Code', userA.id, recycledCode]
+    );
+  } catch (err) {
+    partialConstraintCaught = true;
+  }
+  assert.strictEqual(partialConstraintCaught, true, 'Partial unique index should block two simultaneously active groups sharing a code');
+
+  console.log('  ✔ Creator-only key regeneration and partial index code reuse verified');
 
   // --- SECTION 6: Real-Time Sync (Socket.IO) ---
   console.log('\n▶ [6/8] Testing Real-Time Socket.IO Synchronization...');
