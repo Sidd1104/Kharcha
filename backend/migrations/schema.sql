@@ -14,14 +14,17 @@ CREATE TABLE IF NOT EXISTS groups (
   name VARCHAR(150) NOT NULL,
   icon VARCHAR(40) DEFAULT 'wallet',
   created_by INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  join_code VARCHAR(6) UNIQUE,
+  join_code VARCHAR(6),
   join_code_active BOOLEAN NOT NULL DEFAULT true,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 -- Migration for existing databases
-ALTER TABLE groups ADD COLUMN IF NOT EXISTS join_code VARCHAR(6) UNIQUE;
+ALTER TABLE groups ADD COLUMN IF NOT EXISTS join_code VARCHAR(6);
 ALTER TABLE groups ADD COLUMN IF NOT EXISTS join_code_active BOOLEAN NOT NULL DEFAULT true;
+ALTER TABLE groups DROP CONSTRAINT IF EXISTS groups_join_code_key;
+DROP INDEX IF EXISTS groups_join_code_key;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_groups_join_code_active ON groups (join_code) WHERE join_code_active = true;
 
 CREATE TABLE IF NOT EXISTS group_participants (
   id SERIAL PRIMARY KEY,

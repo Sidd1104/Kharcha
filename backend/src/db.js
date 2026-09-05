@@ -44,7 +44,7 @@ if (isPostgres) {
       name TEXT NOT NULL,
       icon TEXT DEFAULT 'wallet',
       created_by INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      join_code TEXT UNIQUE,
+      join_code TEXT,
       join_code_active INTEGER NOT NULL DEFAULT 1,
       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
@@ -119,11 +119,15 @@ if (isPostgres) {
     console.log('🔄 Migrated groups table: added join_code and join_code_active columns');
   }
 
-  // Ensure partial unique index exists
+  // Ensure partial unique indexes exist
   db.exec(`
     CREATE UNIQUE INDEX IF NOT EXISTS idx_group_participants_user_unique 
     ON group_participants (group_id, user_id) 
     WHERE user_id IS NOT NULL;
+
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_groups_join_code_active
+    ON groups (join_code)
+    WHERE join_code_active = 1;
   `);
 
   // Backfill unique 6-digit join_code for existing groups with NULL code
