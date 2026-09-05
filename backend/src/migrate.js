@@ -1,8 +1,7 @@
-// Run with: npm run migrate
-// Reads migrations/schema.sql and executes it against DATABASE_URL
+const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '../.env') });
 require('dotenv').config();
 const fs = require('fs');
-const path = require('path');
 const { pool } = require('./db');
 
 async function migrate() {

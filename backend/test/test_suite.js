@@ -19,7 +19,7 @@ const fs = require('fs');
 const { io: ioClient } = require('socket.io-client');
 require('dotenv').config({ path: path.join(__dirname, '../.env') });
 
-const { pool } = require('../src/db');
+const { pool, isPostgres } = require('../src/db');
 const { generateJoinCode } = require('../src/utils/joinCode');
 
 if (!process.env.JWT_SECRET) {
@@ -322,10 +322,22 @@ async function runSuite() {
   await pool.query('INSERT INTO group_participants (group_id, guest_name, status) VALUES ($1, $2, $3)', [createdGId, 'Guest Beta', 'guest']);
 
   // Legacy tables and columns exist
-  const { rows: tCheck } = await pool.query("SELECT name FROM sqlite_master WHERE type='table' AND name='group_invites'");
-  assert.strictEqual(tCheck.length, 1);
-  const { rows: colCheck } = await pool.query('PRAGMA table_info(group_participants)');
-  assert.ok(colCheck.find((c) => c.name === 'invite_email'));
+  if (isPostgres) {
+    const { rows: tCheck } = await pool.query(
+      "SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename = 'group_invites'"
+    );
+    assert.strictEqual(tCheck.length, 1, 'Expected group_invites table in pg_tables');
+
+    const { rows: colCheck } = await pool.query(
+      "SELECT column_name FROM information_schema.columns WHERE table_name = 'group_participants' AND column_name = 'invite_email'"
+    );
+    assert.strictEqual(colCheck.length, 1, 'Expected invite_email column in information_schema.columns');
+  } else {
+    const { rows: tCheck } = await pool.query("SELECT name FROM sqlite_master WHERE type='table' AND name='group_invites'");
+    assert.strictEqual(tCheck.length, 1);
+    const { rows: colCheck } = await pool.query('PRAGMA table_info(group_participants)');
+    assert.ok(colCheck.find((c) => c.name === 'invite_email'));
+  }
   console.log('  ✔ Partial unique index, multiple guests, and backward-compatible schema verified');
 
   // --- SECTION 8: Deprecated Endpoints Check ---

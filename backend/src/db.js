@@ -9,16 +9,18 @@ let pool;
 
 if (isPostgres) {
   const { Pool } = require('pg');
+  const needsSsl = process.env.DATABASE_URL?.includes('sslmode=require') ||
+                   process.env.DATABASE_URL?.includes('neon.tech') ||
+                   process.env.DATABASE_URL?.includes('supabase.co');
   pool = new Pool({
     connectionString: process.env.DATABASE_URL,
-    ssl: process.env.DATABASE_URL?.includes('sslmode=require')
-      ? { rejectUnauthorized: false }
-      : false,
+    ssl: needsSsl ? { rejectUnauthorized: false } : false,
   });
 
   pool.on('error', (err) => {
     console.error('Unexpected error on idle Postgres client', err);
   });
+  console.log('🐘 Using PostgreSQL database');
 } else {
   // SQLite implementation
   const Database = require('better-sqlite3');
@@ -198,4 +200,4 @@ if (isPostgres) {
   console.log('📦 Using local SQLite database (kharcha.db)');
 }
 
-module.exports = { pool };
+module.exports = { pool, isPostgres };
