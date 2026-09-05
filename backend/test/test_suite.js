@@ -144,7 +144,7 @@ async function runSuite() {
   assert.strictEqual(lowCode, '000042', 'Code must be padded to "000042"');
 
   // Verify "000042" matches correctly in database and on real HTTP join endpoint
-  await pool.query("UPDATE groups SET join_code_active = false WHERE join_code = '000042'");
+  await pool.query("DELETE FROM groups WHERE join_code = '000042'");
   const lowGroupRes = await pool.query(
     "INSERT INTO groups (name, created_by, join_code, join_code_active) VALUES ($1, $2, $3, true) RETURNING id",
     ['Low Code Group', userA.id, '000042']
@@ -357,6 +357,7 @@ async function runSuite() {
   console.log('\n============================================================');
   console.log('  🎉 ALL 8 TEST CATEGORIES PASSED WITH 100% SUCCESS!        ');
   console.log('============================================================\n');
+  process.exit(0);
 }
 
 runSuite().catch((err) => {
