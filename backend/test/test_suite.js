@@ -22,8 +22,10 @@ require('dotenv').config({ path: path.join(__dirname, '../.env') });
 const { pool } = require('../src/db');
 const { generateJoinCode } = require('../src/utils/joinCode');
 
-const BASE_URL = 'http://localhost:4000';
-const JWT_SECRET = process.env.JWT_SECRET || 'kharcha_super_secret_jwt_key_2026_dev';
+if (!process.env.JWT_SECRET) {
+  throw new Error('FATAL: JWT_SECRET environment variable is not set. Refusing to run tests with an insecure or missing secret.');
+}
+const JWT_SECRET = process.env.JWT_SECRET;
 
 function makeToken(user) {
   return jwt.sign({ userId: user.id, email: user.email, name: user.name }, JWT_SECRET, { expiresIn: '1h' });

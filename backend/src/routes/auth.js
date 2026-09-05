@@ -9,14 +9,14 @@ const router = express.Router();
 function signToken(user) {
   return jwt.sign(
     { userId: user.id, email: user.email, name: user.name },
-    process.env.JWT_SECRET || 'kharcha_dev_secret',
+    process.env.JWT_SECRET,
     { expiresIn: '7d' }
   );
 }
 
 // Generates a cryptographically signed state token with 10-minute validity to prevent CSRF
 function generateState() {
-  const secret = process.env.JWT_SECRET || 'kharcha_dev_secret';
+  const secret = process.env.JWT_SECRET;
   const timestamp = Date.now();
   const random = crypto.randomBytes(16).toString('hex');
   const payload = `${timestamp}:${random}`;
@@ -31,7 +31,7 @@ function verifyState(state) {
   if (parts.length !== 3) return false;
 
   const [timestamp, random, hmac] = parts;
-  const secret = process.env.JWT_SECRET || 'kharcha_dev_secret';
+  const secret = process.env.JWT_SECRET;
   const payload = `${timestamp}:${random}`;
   const expectedHmac = crypto.createHmac('sha256', secret).update(payload).digest('hex');
 

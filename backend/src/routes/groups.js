@@ -15,7 +15,7 @@ const joinLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   validate: { keyGeneratorIpFallback: false },
-  keyGenerator: (req) => (req.user && req.user.id ? `user_${req.user.id}` : (req.ip || '127.0.0.1')),
+  keyGenerator: (req) => String(req.user.id),
   handler: (req, res) => {
     res.status(429).json({
       error: 'Too many join attempts. Please wait a few minutes before trying again.'

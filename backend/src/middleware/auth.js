@@ -12,7 +12,7 @@ async function requireAuth(req, res, next) {
   }
 
   try {
-    const payload = jwt.verify(token, process.env.JWT_SECRET || 'kharcha_dev_secret');
+    const payload = jwt.verify(token, process.env.JWT_SECRET);
     if (!payload.userId) {
       return res.status(401).json({ error: 'Invalid token payload' });
     }

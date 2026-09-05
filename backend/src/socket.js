@@ -9,10 +9,7 @@ function setupSocketIO(io) {
       return next(new Error('Authentication required'));
     }
     try {
-      const payload = jwt.verify(
-        token,
-        process.env.JWT_SECRET || 'kharcha_super_secret_jwt_key_2026_dev'
-      );
+      const payload = jwt.verify(token, process.env.JWT_SECRET);
       if (!payload.userId) {
         return next(new Error('Invalid token payload'));
       }
