@@ -10,10 +10,14 @@ async function migrate() {
   try {
     // Pre-migration validation: verify no active duplicate join codes exist
     try {
+      const { isPostgres } = require('./db');
+      const activeFilter = isPostgres ? "join_code_active = true" : "(join_code_active = 1 OR join_code_active = true)";
+      const inactiveFilter = isPostgres ? "join_code_active = false" : "(join_code_active = 0 OR join_code_active = false)";
+
       const activeDupes = await pool.query(`
         SELECT join_code, COUNT(*) as count 
         FROM groups 
-        WHERE (join_code_active = true OR join_code_active = 1) AND join_code IS NOT NULL 
+        WHERE ${activeFilter} AND join_code IS NOT NULL 
         GROUP BY join_code 
         HAVING COUNT(*) > 1
       `);
@@ -24,7 +28,7 @@ async function migrate() {
       const inactiveDupes = await pool.query(`
         SELECT join_code, COUNT(*) as count 
         FROM groups 
-        WHERE (join_code_active = false OR join_code_active = 0) AND join_code IS NOT NULL 
+        WHERE ${inactiveFilter} AND join_code IS NOT NULL 
         GROUP BY join_code 
         HAVING COUNT(*) > 1
       `);
