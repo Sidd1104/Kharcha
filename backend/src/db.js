@@ -56,6 +56,7 @@ if (isPostgres) {
       guest_name TEXT,
       invite_email TEXT,
       status TEXT NOT NULL DEFAULT 'active',
+      joined_via TEXT NOT NULL DEFAULT 'host_added',
       added_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       CHECK (user_id IS NOT NULL OR guest_name IS NOT NULL)
     );
@@ -77,6 +78,7 @@ if (isPostgres) {
       amount NUMERIC NOT NULL CHECK (amount > 0),
       description TEXT NOT NULL,
       category TEXT NOT NULL DEFAULT 'Other',
+      split_type TEXT NOT NULL DEFAULT 'equal',
       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
 
@@ -117,6 +119,18 @@ if (isPostgres) {
       ALTER TABLE groups ADD COLUMN join_code_active INTEGER NOT NULL DEFAULT 1;
     `);
     console.log('🔄 Migrated groups table: added join_code and join_code_active columns');
+  }
+
+  // Migration check: verify joined_via in group_participants
+  const participantColumns = db.pragma('table_info(group_participants)');
+  if (!participantColumns.some((col) => col.name === 'joined_via')) {
+    db.exec(`ALTER TABLE group_participants ADD COLUMN joined_via TEXT NOT NULL DEFAULT 'host_added';`);
+  }
+
+  // Migration check: verify split_type in expenses
+  const expenseColumns = db.pragma('table_info(expenses)');
+  if (!expenseColumns.some((col) => col.name === 'split_type')) {
+    db.exec(`ALTER TABLE expenses ADD COLUMN split_type TEXT NOT NULL DEFAULT 'equal';`);
   }
 
   // Ensure partial unique indexes exist
