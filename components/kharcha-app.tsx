@@ -1473,7 +1473,7 @@ function GroupView({
   const [expenses, setExpenses] = useState<Expense[]>([])
   const [balances, setBalances] = useState<Balance[]>([])
   const [settlements, setSettlements] = useState<SettlementTxn[]>([])
-  const [loading, setLoading] = useState(true)
+  const [initialLoading, setInitialLoading] = useState(true)
   const [expenseOpen, setExpenseOpen] = useState(false)
   const [addPersonOpen, setAddPersonOpen] = useState(false)
   const [removeMembersOpen, setRemoveMembersOpen] = useState(false)
@@ -1482,117 +1482,139 @@ function GroupView({
   const [keyCopied, setKeyCopied] = useState(false)
   const [regeneratingKey, setRegeneratingKey] = useState(false)
 
-  async function loadAll(trigger = 'manual') {
-    console.log('[Diagnostic] loadAll called, trigger =', trigger, 'tab =', tab)
-    setLoading(true)
+  // Race-condition sequence guard for background refreshes
+  const fetchSeqRef = useRef(0)
+
+  async function loadAll(isInitial = false) {
+    if (isInitial) setInitialLoading(true)
+    const seq = ++fetchSeqRef.current
     try {
       const [detail, exp, bal] = await Promise.all([
         fetchGroupDetail(groupId),
         fetchExpenses(groupId),
         fetchBalances(groupId),
       ])
+      // Ignore if a newer fetch was started
+      if (seq !== fetchSeqRef.current) return
+
       setGroup(detail.group)
       setParticipants(detail.participants)
       setExpenses(exp.expenses)
       setBalances(bal.balances)
     } finally {
-      setLoading(false)
+      if (isInitial) setInitialLoading(false)
+    }
+  }
+
+  async function refreshExpensesAndBalances() {
+    const seq = ++fetchSeqRef.current
+    try {
+      const [exp, bal] = await Promise.all([
+        fetchExpenses(groupId),
+        fetchBalances(groupId),
+      ])
+      if (seq !== fetchSeqRef.current) return
+      setExpenses(exp.expenses)
+      setBalances(bal.balances)
+    } catch (err) {
+      console.error('Error updating expenses/balances:', err)
     }
   }
 
   async function loadSettlements() {
-    console.log('[Diagnostic] loadSettlements called')
     const s = await fetchSettlements(groupId)
     setSettlements(s.transactions)
   }
 
+  // Initial group data load on mount or groupId change
   useEffect(() => {
-    console.log('[Diagnostic] useEffect [groupId] fired')
-    loadAll('mount/groupId')
+    loadAll(true)
   }, [groupId])
 
+  // Settlements only loaded when on the settle tab
   useEffect(() => {
-    console.log('[Diagnostic] useEffect [tab] fired, tab =', tab)
     if (tab === 'settle') loadSettlements()
   }, [tab])
 
-  // Real-time Socket.IO synchronization for this group
+  // Real-time Socket.IO synchronization decoupled from tab (depends strictly on groupId)
   useEffect(() => {
     const token = getToken()
     if (!token) return
 
-    console.log('[Diagnostic] Socket.IO useEffect initializing with deps [groupId, tab], tab =', tab)
     const socket = io(process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000', {
       auth: { token },
       transports: ['websocket'],
     })
 
     socket.on('connect', () => {
-      console.log('[Diagnostic Socket] Connected:', socket.id, 'joining room:', groupId)
+      console.log('[Socket] Connected, id =', socket.id, 'joining group =', groupId)
       socket.emit('join-group', groupId)
     })
 
     socket.on('disconnect', (reason) => {
-      console.log('[Diagnostic Socket] Disconnected, reason =', reason)
+      console.log('[Socket] Disconnected, id =', socket.id, 'reason =', reason)
     })
 
     socket.on('connect_error', (err) => {
-      console.warn('[Diagnostic Socket] connect_error:', err.message)
+      console.warn('[Socket] Connection error:', err.message)
     })
 
-    socket.io.on('reconnect_attempt', (attempt) => {
-      console.log('[Diagnostic Socket] reconnect_attempt #', attempt)
+    // Incremental update on expense-created: fetch fresh expenses & server-computed live balances in-place
+    socket.on('expense-created', (data: { groupId: number; expense: any }) => {
+      if (Number(data.groupId) === Number(groupId)) {
+        refreshExpensesAndBalances()
+      }
+    })
+
+    socket.on('expense-updated', (data: { groupId: number }) => {
+      if (Number(data.groupId) === Number(groupId)) {
+        refreshExpensesAndBalances()
+      }
+    })
+
+    socket.on('expense-deleted', (data: { groupId: number }) => {
+      if (Number(data.groupId) === Number(groupId)) {
+        refreshExpensesAndBalances()
+      }
     })
 
     socket.on('member-joined', (data: { groupId: number; participant: any }) => {
-      console.log('[Diagnostic Socket] event member-joined', data)
       if (Number(data.groupId) === Number(groupId)) {
-        loadAll('socket:member-joined')
+        loadAll(false)
       }
     })
 
     socket.on('key-regenerated', (data: { groupId: number; newKey: string }) => {
-      console.log('[Diagnostic Socket] event key-regenerated', data)
       if (Number(data.groupId) === Number(groupId)) {
         setGroup((prev) => (prev ? { ...prev, join_code: data.newKey } : prev))
       }
     })
 
-    socket.on('expense-created', (data: { groupId: number; expense: any }) => {
-      console.log('[Diagnostic Socket] event expense-created', data)
-      if (Number(data.groupId) === Number(groupId)) {
-        loadAll('socket:expense-created')
-      }
-    })
-
     socket.on('settlement-confirmed', (data: { groupId: number }) => {
-      console.log('[Diagnostic Socket] event settlement-confirmed', data)
       if (Number(data.groupId) === Number(groupId)) {
-        loadAll('socket:settlement-confirmed')
+        loadAll(false)
         if (tab === 'settle') loadSettlements()
       }
     })
 
     socket.on('member-removed', (data: { groupId: number; removedIds: number[] }) => {
-      console.log('[Diagnostic Socket] event member-removed', data)
       if (Number(data.groupId) === Number(groupId)) {
-        loadAll('socket:member-removed')
+        loadAll(false)
       }
     })
 
     socket.on('members-merged', (data: { groupId: number }) => {
-      console.log('[Diagnostic Socket] event members-merged', data)
       if (Number(data.groupId) === Number(groupId)) {
-        loadAll('socket:members-merged')
+        loadAll(false)
       }
     })
 
     return () => {
-      console.log('[Diagnostic Socket] Cleanup: disconnecting socket on tab/groupId change, tab was:', tab)
+      console.log('[Socket] Cleanup disconnecting, id =', socket.id)
       socket.emit('leave-group', groupId)
       socket.disconnect()
     }
-  }, [groupId, tab])
+  }, [groupId])
 
   async function handleRegenerateKey() {
     if (!window.confirm("Regenerate join key?\n\nThis will invalidate the current key. Anyone with the old key won't be able to join. Continue?")) {
@@ -1609,7 +1631,7 @@ function GroupView({
     }
   }
 
-  if (loading || !group) {
+  if (initialLoading || !group) {
     return <div className="mt-16 flex justify-center"><Loader2 className="size-6 animate-spin text-muted-foreground" /></div>
   }
 
