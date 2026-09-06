@@ -55,6 +55,16 @@ async function runPart1Tests() {
   console.log('🧪 Starting PART 1 Verification Tests...\n');
   const timestamp = Date.now();
 
+  try {
+    await pool.query("SELECT setval('users_id_seq', (SELECT COALESCE(MAX(id), 1) FROM users))");
+    await pool.query("SELECT setval('groups_id_seq', (SELECT COALESCE(MAX(id), 1) FROM groups))");
+    await pool.query("SELECT setval('group_participants_id_seq', (SELECT COALESCE(MAX(id), 1) FROM group_participants))");
+    await pool.query("SELECT setval('expenses_id_seq', (SELECT COALESCE(MAX(id), 1) FROM expenses))");
+    await pool.query("SELECT setval('expense_splits_id_seq', (SELECT COALESCE(MAX(id), 1) FROM expense_splits))");
+  } catch (e) {
+    // Ignore if sequence doesn't exist (e.g. SQLite)
+  }
+
   // Create test users in DB
   const u1Res = await pool.query(
     "INSERT INTO users (name, email, password_hash) VALUES ($1, $2, 'dummy') RETURNING *",
