@@ -786,6 +786,12 @@ function RemoveMembersModal({
                             In expenses
                           </span>
                         )}
+                        <span className={cn(
+                          'rounded-md px-2 py-0.5 text-[10px] font-medium',
+                          p.joined_via === 'join_key' ? 'bg-emerald-500/15 text-emerald-400' : 'bg-zinc-800 text-zinc-400'
+                        )}>
+                          {p.joined_via === 'join_key' ? 'Joined by key' : 'Added by host'}
+                        </span>
                       </div>
                       <p className="text-xs text-muted-foreground truncate">
                         {isCreator
@@ -1745,6 +1751,9 @@ function GroupView({
             <button onClick={() => setTab('balances')} className={cn('border-b-2 pb-3 text-sm font-semibold', tab === 'balances' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground')}>
               Balances
             </button>
+            <button onClick={() => setTab('members')} className={cn('border-b-2 pb-3 text-sm font-semibold', tab === 'members' ? 'border-primary text-primary' : 'border-transparent text-muted-foreground')}>
+              Members <Badge variant="secondary" className="ml-1.5">{activeParticipants.length}</Badge>
+            </button>
           </div>
 
           {tab === 'expenses' ? (
@@ -1766,7 +1775,7 @@ function GroupView({
                 )
               })}
             </div>
-          ) : (
+          ) : tab === 'balances' ? (
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
               {balances.map((b) => {
                 const isYou = b.userId === currentUser.id
@@ -1782,6 +1791,86 @@ function GroupView({
                     <p className={cn('font-bold', isPositive ? 'text-emerald-400' : isNegative ? 'text-rose-400' : 'text-muted-foreground')}>
                       {isPositive ? '+' : isNegative ? '-' : ''}₹{Math.abs(Math.round(b.balance)).toLocaleString('en-IN')}
                     </p>
+                  </div>
+                )
+              })}
+            </div>
+          ) : (
+            <div className="mt-4 flex flex-col gap-2.5">
+              {participants.map((p) => {
+                const isYou = p.user_id === currentUser.id
+                const isHost = p.is_creator
+                const isGuest = p.status === 'guest' || p.user_id === null
+                const joinedByKey = p.joined_via === 'join_key'
+
+                return (
+                  <div
+                    key={p.participant_id}
+                    className="flex items-center justify-between rounded-xl border border-border bg-card p-4 sm:p-5 transition-colors"
+                  >
+                    <div className="flex items-center gap-3.5">
+                      <Avatar className="size-10">
+                        <AvatarFallback className="bg-secondary text-secondary-foreground text-xs font-semibold">
+                          {initialsOf(p.name)}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="font-semibold text-foreground">
+                            {p.name}
+                            {isYou && <span className="ml-1.5 text-xs font-normal text-muted-foreground">(you)</span>}
+                          </p>
+                          {isHost && (
+                            <Badge variant="secondary" className="text-[10px] font-medium py-0 px-1.5">
+                              Host
+                            </Badge>
+                          )}
+                          {isGuest && (
+                            <Badge variant="outline" className="text-[10px] font-medium py-0 px-1.5 border-amber-500/40 text-amber-500 bg-amber-500/10">
+                              Guest
+                            </Badge>
+                          )}
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          {p.email || (isGuest ? 'Added directly by name' : 'Active member')}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2.5">
+                      {/* Joined Via Label */}
+                      <Badge
+                        variant="outline"
+                        className={cn(
+                          'text-xs font-normal py-1 px-2.5 gap-1.5',
+                          joinedByKey
+                            ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400'
+                            : 'border-zinc-700 bg-zinc-800/40 text-zinc-300'
+                        )}
+                      >
+                        {joinedByKey ? (
+                          <>
+                            <KeyRound className="size-3 text-emerald-400" /> Joined by key
+                          </>
+                        ) : (
+                          <>
+                            <User className="size-3 text-zinc-400" /> Added by host
+                          </>
+                        )}
+                      </Badge>
+
+                      {/* Host merge action if guest */}
+                      {isCreator && isGuest && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 text-xs text-muted-foreground hover:text-foreground"
+                          onClick={() => setMergeModalOpen(true)}
+                        >
+                          <GitMerge className="mr-1 size-3.5" /> Merge
+                        </Button>
+                      )}
+                    </div>
                   </div>
                 )
               })}
