@@ -1461,7 +1461,7 @@ function GroupView({
   currentUser: AuthUser
   onBack: () => void
 }) {
-  const [tab, setTab] = useState<'expenses' | 'balances' | 'settle'>('expenses')
+  const [tab, setTab] = useState<'expenses' | 'balances' | 'members' | 'settle'>('expenses')
   const [group, setGroup] = useState<Group | null>(null)
   const [participants, setParticipants] = useState<Participant[]>([])
   const [expenses, setExpenses] = useState<Expense[]>([])
@@ -1598,8 +1598,14 @@ function GroupView({
           <div>
             <h1 className="text-3xl font-bold tracking-tight text-foreground">{group.name}</h1>
             <div className="mt-2 flex flex-wrap items-center gap-3">
-              <PeopleStack members={activeParticipants} size="size-6" />
-              <span className="text-sm text-muted-foreground">{activeParticipants.length} members</span>
+              <button
+                onClick={() => setTab('members')}
+                className="flex items-center gap-2 hover:opacity-80 transition-opacity text-left cursor-pointer"
+                title="View group members"
+              >
+                <PeopleStack members={activeParticipants} size="size-6" />
+                <span className="text-sm text-muted-foreground">{activeParticipants.length} members</span>
+              </button>
 
               {/* Join key badge with 1-click copy */}
               <div className="ml-1 inline-flex items-center gap-1.5 rounded-lg border border-border bg-muted/60 px-2.5 py-1 text-xs">
