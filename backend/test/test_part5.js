@@ -268,6 +268,9 @@ async function runPart5Tests() {
   assert.strictEqual(checkExp.rows.length, 0, 'Expense with 0 remaining splits should be deleted');
   console.log('   ✅ Empty custom expense cleanly deleted.');
 
+  // Cleanup test group
+  await pool.query('DELETE FROM groups WHERE id = $1', [group.id]);
+
   console.log('\n🎉 ALL PART 5 TESTS PASSED SUCCESSFULLY!\n');
   process.exit(0);
 }
