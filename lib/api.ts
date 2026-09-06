@@ -15,6 +15,7 @@ export type Participant = {
   name: string
   email: string | null
   status: 'active' | 'invited' | 'guest'
+  joined_via?: 'host_added' | 'join_key'
   type: 'user' | 'guest' | 'invited'
   is_creator?: boolean
   expense_paid_count?: number

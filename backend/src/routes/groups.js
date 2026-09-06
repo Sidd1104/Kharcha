@@ -224,9 +224,31 @@ router.post('/join', joinLimiter, async (req, res) => {
       });
     }
 
-    // 4. New participant insertion
+    // 3.5 Check for unlinked guest candidates
+    const { rows: candidates } = await pool.query(
+      "SELECT id, guest_name FROM group_participants WHERE group_id = $1 AND user_id IS NULL AND status = 'guest' ORDER BY id ASC",
+      [group.id]
+    );
+
+    if (candidates.length > 0) {
+      return res.status(200).json({
+        requiresLinkChoice: true,
+        group: {
+          id: group.id,
+          name: group.name,
+          icon: group.icon,
+          join_code: group.join_code,
+        },
+        candidates: candidates.map((c) => ({
+          participantId: c.id,
+          guestName: c.guest_name,
+        })),
+      });
+    }
+
+    // 4. New participant insertion (no unlinked candidates)
     const insertResult = await pool.query(
-      "INSERT INTO group_participants (group_id, user_id, guest_name, status) VALUES ($1, $2, $3, 'active') RETURNING *",
+      "INSERT INTO group_participants (group_id, user_id, guest_name, status, joined_via) VALUES ($1, $2, $3, 'active', 'join_key') RETURNING *",
       [group.id, req.user.id, req.user.name || null]
     );
     const participant = insertResult.rows[0];
@@ -268,6 +290,275 @@ router.post('/join', joinLimiter, async (req, res) => {
   }
 });
 
+// POST /groups/:id/join/confirm — confirm joining group with account linking choice
+router.post('/:id/join/confirm', joinLimiter, async (req, res) => {
+  const { id } = req.params;
+  const { linkToParticipantId } = req.body;
+
+  try {
+    const { rows: groupRows } = await pool.query('SELECT * FROM groups WHERE id = $1', [id]);
+    const group = groupRows[0];
+    if (!group) {
+      return res.status(404).json({ error: 'Group not found' });
+    }
+
+    // Check existing active membership
+    const { rows: participantRows } = await pool.query(
+      'SELECT * FROM group_participants WHERE group_id = $1 AND user_id = $2',
+      [group.id, req.user.id]
+    );
+    const existing = participantRows[0];
+
+    if (existing && existing.status === 'active') {
+      return res.status(200).json({
+        group: {
+          id: group.id,
+          name: group.name,
+          icon: group.icon,
+          join_code: group.join_code,
+        },
+        participant: {
+          id: existing.id,
+          group_id: existing.group_id,
+          user_id: existing.user_id,
+          status: existing.status,
+        },
+        alreadyMember: true,
+        message: 'You are already a member of this group',
+      });
+    }
+
+    let participant;
+
+    if (linkToParticipantId !== undefined && linkToParticipantId !== null) {
+      // User chose to link to an unlinked guest candidate
+      const targetId = Number(linkToParticipantId);
+      const { rows: candidateRows } = await pool.query(
+        'SELECT * FROM group_participants WHERE id = $1 AND group_id = $2',
+        [targetId, group.id]
+      );
+      const candidate = candidateRows[0];
+
+      if (!candidate) {
+        return res.status(404).json({ error: 'Selected participant not found in this group' });
+      }
+      if (candidate.user_id !== null) {
+        return res.status(400).json({ error: 'This participant is already linked to another user account' });
+      }
+
+      // If user had an invited or inactive record, clean it up before linking
+      if (existing) {
+        await pool.query('DELETE FROM group_participants WHERE id = $1', [existing.id]);
+      }
+
+      // Update participant to link user_id and set status = 'active'
+      // Keep guest_name intact as display fallback
+      const updateResult = await pool.query(
+        "UPDATE group_participants SET user_id = $1, status = 'active' WHERE id = $2 RETURNING *",
+        [req.user.id, candidate.id]
+      );
+      participant = updateResult.rows[0];
+    } else {
+      // User chose "No, add me as a new member"
+      const insertResult = await pool.query(
+        "INSERT INTO group_participants (group_id, user_id, guest_name, status, joined_via) VALUES ($1, $2, $3, 'active', 'join_key') RETURNING *",
+        [group.id, req.user.id, req.user.name || null]
+      );
+      participant = insertResult.rows[0];
+    }
+
+    // Audit log / event prep
+    const io = req.app.get('io');
+    if (io) {
+      io.to(`group:${group.id}`).emit('member-joined', {
+        groupId: group.id,
+        participant: {
+          id: participant.id,
+          userId: req.user.id,
+          name: req.user.name,
+          email: req.user.email,
+        },
+      });
+    }
+
+    return res.status(200).json({
+      group: {
+        id: group.id,
+        name: group.name,
+        icon: group.icon,
+        join_code: group.join_code,
+      },
+      participant: {
+        id: participant.id,
+        group_id: participant.group_id,
+        user_id: participant.user_id,
+        status: participant.status,
+      },
+      alreadyMember: false,
+      message: 'Successfully joined the group!',
+    });
+  } catch (err) {
+    console.error('Confirm join error:', err);
+    return res.status(500).json({ error: 'Failed to confirm group join' });
+  }
+});
+
+// POST /groups/:id/participants/merge — host-only manual merge of an unlinked guest into an active member
+router.post('/:id/participants/merge', requireGroupMember, async (req, res) => {
+  const { id } = req.params;
+  const { unlinkedParticipantId, targetParticipantId } = req.body;
+
+  if (!unlinkedParticipantId || !targetParticipantId) {
+    return res.status(400).json({ error: 'Both unlinkedParticipantId and targetParticipantId are required' });
+  }
+
+  const unlinkedId = Number(unlinkedParticipantId);
+  const targetId = Number(targetParticipantId);
+
+  if (unlinkedId === targetId) {
+    return res.status(400).json({ error: 'Cannot merge a participant into itself' });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // 1. Verify group and authorization: caller must be group.created_by
+    const groupResult = await client.query('SELECT * FROM groups WHERE id = $1', [id]);
+    const group = groupResult.rows[0];
+    if (!group) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Group not found' });
+    }
+
+    if (group.created_by !== req.user.id) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'Only the group host can merge participants' });
+    }
+
+    // 2. Validate unlinked participant: must belong to this group and user_id IS NULL
+    const unlinkedRes = await client.query(
+      'SELECT * FROM group_participants WHERE id = $1 AND group_id = $2',
+      [unlinkedId, id]
+    );
+    const unlinked = unlinkedRes.rows[0];
+    if (!unlinked) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Unlinked participant not found in this group' });
+    }
+    if (unlinked.user_id !== null) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'unlinkedParticipantId is already linked to a user account' });
+    }
+
+    // 3. Validate target participant: must belong to this group and user_id IS NOT NULL
+    const targetRes = await client.query(
+      'SELECT * FROM group_participants WHERE id = $1 AND group_id = $2',
+      [targetId, id]
+    );
+    const target = targetRes.rows[0];
+    if (!target) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Target participant not found in this group' });
+    }
+    if (target.user_id === null) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'targetParticipantId must be a registered linked member' });
+    }
+
+    // 4. Update expenses paid by unlinked participant to target participant
+    await client.query(
+      'UPDATE expenses SET paid_by = $1 WHERE paid_by = $2 AND group_id = $3',
+      [targetId, unlinkedId, id]
+    );
+
+    // 5. Handle expense_splits with collision detection for UNIQUE(expense_id, participant_id)
+    const collisionRes = await client.query(
+      `SELECT es_unlinked.id AS unlinked_split_id,
+              es_unlinked.share_amount AS unlinked_share,
+              es_target.id AS target_split_id,
+              es_target.share_amount AS target_share
+       FROM expense_splits es_unlinked
+       JOIN expense_splits es_target
+         ON es_target.expense_id = es_unlinked.expense_id
+        AND es_target.participant_id = $1
+       WHERE es_unlinked.participant_id = $2`,
+      [targetId, unlinkedId]
+    );
+
+    for (const col of collisionRes.rows) {
+      const combinedShare = Math.round((Number(col.target_share) + Number(col.unlinked_share)) * 100) / 100;
+      await client.query(
+        'UPDATE expense_splits SET share_amount = $1 WHERE id = $2',
+        [combinedShare, col.target_split_id]
+      );
+      await client.query(
+        'DELETE FROM expense_splits WHERE id = $1',
+        [col.unlinked_split_id]
+      );
+    }
+
+    // Update remaining splits of unlinked participant (where no collision existed)
+    await client.query(
+      'UPDATE expense_splits SET participant_id = $1 WHERE participant_id = $2',
+      [targetId, unlinkedId]
+    );
+
+    // 6. Update settlements involving unlinked participant
+    await client.query(
+      'UPDATE settlements SET from_participant = $1 WHERE from_participant = $2 AND group_id = $3',
+      [targetId, unlinkedId, id]
+    );
+    await client.query(
+      'UPDATE settlements SET to_participant = $1 WHERE to_participant = $2 AND group_id = $3',
+      [targetId, unlinkedId, id]
+    );
+    await client.query(
+      'DELETE FROM settlements WHERE from_participant = to_participant AND group_id = $1',
+      [id]
+    );
+
+    // 7. Delete the now-empty unlinked participant row
+    await client.query(
+      'DELETE FROM group_participants WHERE id = $1 AND group_id = $2',
+      [unlinkedId, id]
+    );
+
+    await client.query('COMMIT');
+
+    // 8. Real-time event
+    const io = req.app.get('io');
+    if (io) {
+      io.to(`group:${id}`).emit('members-merged', {
+        groupId: Number(id),
+        unlinkedParticipantId: unlinkedId,
+        targetParticipantId: targetId,
+      });
+      // Also emit member-joined for backward compatibility
+      io.to(`group:${id}`).emit('member-joined', {
+        groupId: Number(id),
+        participant: {
+          id: target.id,
+          userId: target.user_id,
+        },
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: 'Participants merged successfully',
+      unlinkedParticipantId: unlinkedId,
+      targetParticipantId: targetId,
+    });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('Participant merge error:', err);
+    return res.status(500).json({ error: err.message || 'Failed to merge participants' });
+  } finally {
+    client.release();
+  }
+});
+
 // GET /groups/:id — group detail with participants
 router.get('/:id', requireGroupMember, async (req, res) => {
   const { id } = req.params;
@@ -282,6 +573,7 @@ router.get('/:id', requireGroupMember, async (req, res) => {
               COALESCE(u.name, gp.guest_name) AS name,
               COALESCE(u.email, gp.invite_email) AS email,
               gp.status,
+              gp.joined_via,
               CASE
                 WHEN gp.user_id IS NOT NULL AND gp.status = 'active' THEN 'user'
                 WHEN gp.status = 'invited' THEN 'invited'
