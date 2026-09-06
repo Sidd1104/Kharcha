@@ -33,9 +33,12 @@ CREATE TABLE IF NOT EXISTS group_participants (
   guest_name VARCHAR(120),
   invite_email VARCHAR(255),
   status VARCHAR(20) NOT NULL DEFAULT 'active',  -- 'active' | 'invited' | 'guest'
+  joined_via VARCHAR(20) NOT NULL DEFAULT 'host_added', -- 'host_added' | 'join_key'
   added_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   CHECK (user_id IS NOT NULL OR guest_name IS NOT NULL)
 );
+
+ALTER TABLE group_participants ADD COLUMN IF NOT EXISTS joined_via VARCHAR(20) NOT NULL DEFAULT 'host_added';
 
 CREATE TABLE IF NOT EXISTS group_invites (
   id SERIAL PRIMARY KEY,
@@ -54,8 +57,11 @@ CREATE TABLE IF NOT EXISTS expenses (
   amount NUMERIC(12, 2) NOT NULL CHECK (amount > 0),
   description VARCHAR(255) NOT NULL,
   category VARCHAR(40) NOT NULL DEFAULT 'Other',
+  split_type VARCHAR(10) NOT NULL DEFAULT 'equal', -- 'equal' | 'custom'
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+ALTER TABLE expenses ADD COLUMN IF NOT EXISTS split_type VARCHAR(10) NOT NULL DEFAULT 'equal';
 
 CREATE TABLE IF NOT EXISTS expense_splits (
   id SERIAL PRIMARY KEY,
