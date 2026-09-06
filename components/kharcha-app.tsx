@@ -2,8 +2,8 @@
 
 import { useEffect, useState, useRef } from 'react'
 import {
-  AlertTriangle, ArrowLeft, ArrowRight, Bell, Car, Check, ChevronDown, Copy, Home, KeyRound, Loader2, Lock, Mail, Plus,
-  Receipt, ShieldCheck, SlidersHorizontal, Sparkles, Trash2, User, UserMinus, UserPlus, Utensils, Wallet, X,
+  AlertTriangle, ArrowLeft, ArrowRight, Bell, Car, Check, ChevronDown, Copy, GitMerge, Home, KeyRound, Loader2, Lock, Mail, Plus,
+  Receipt, ShieldCheck, SlidersHorizontal, Sparkles, Trash2, User, UserCheck, UserMinus, UserPlus, Utensils, Wallet, X,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -13,11 +13,11 @@ import { Separator } from '@/components/ui/separator'
 import { cn } from '@/lib/utils'
 import { io } from 'socket.io-client'
 import {
-  AuthUser, Balance, Expense, Group, Participant, PendingInvite, SettlementTxn,
+  AuthUser, Balance, Expense, Group, JoinCandidate, Participant, PendingInvite, SettlementTxn,
   acceptInvite, addExpense, addGuest, checkGoogleOAuthConfig, clearSession,
-  confirmSettlement, createGroup, declineInvite, fetchBalances,
+  confirmJoinGroup, confirmSettlement, createGroup, declineInvite, fetchBalances,
   fetchExpenses, fetchGroupDetail, fetchGroups, fetchNotifications, fetchSettlements,
-  getGoogleAuthUrl, getStoredUser, getToken, joinGroup, loginUser, quickGoogleLogin,
+  getGoogleAuthUrl, getStoredUser, getToken, joinGroup, loginUser, mergeParticipants, quickGoogleLogin,
   regenerateGroupKey, registerUser, removeParticipants, sendInvite, setSession,
 } from '@/lib/api'
 
@@ -871,7 +871,7 @@ function RemoveMembersModal({
 }
 
 // ---------------------------------------------------------------------------
-// Join group modal — join with 6-digit key
+// Join group modal — join with 6-digit key & account linking choice
 // ---------------------------------------------------------------------------
 function JoinGroupModal({
   onClose,
@@ -883,6 +883,10 @@ function JoinGroupModal({
   const [code, setCode] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [linkCandidates, setLinkCandidates] = useState<{
+    group: Group
+    candidates: JoinCandidate[]
+  } | null>(null)
 
   async function handleJoin() {
     const cleanCode = code.trim()
@@ -894,10 +898,206 @@ function JoinGroupModal({
     setError(null)
     try {
       const res = await joinGroup(cleanCode)
-      onJoined(res.group.id)
-      onClose()
+      if (res.requiresLinkChoice) {
+        setLinkCandidates({ group: res.group, candidates: res.candidates })
+      } else {
+        onJoined(res.group.id)
+        onClose()
+      }
     } catch (err: any) {
       setError(err.message || 'Failed to join group')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function handleConfirmLink(participantId: number | null) {
+    if (!linkCandidates) return
+    setLoading(true)
+    setError(null)
+    try {
+      await confirmJoinGroup(linkCandidates.group.id, participantId)
+      onJoined(linkCandidates.group.id)
+      onClose()
+    } catch (err: any) {
+      setError(err.message || 'Failed to complete joining group')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-foreground/40 p-4 backdrop-blur-sm">
+      <div className="w-full max-w-md rounded-2xl border border-border bg-card p-6 shadow-2xl">
+        {linkCandidates ? (
+          <>
+            <div className="flex items-start justify-between">
+              <div className="flex items-center gap-3">
+                <div className="grid size-10 place-items-center rounded-xl bg-primary/10 text-primary">
+                  <UserCheck className="size-5" />
+                </div>
+                <div>
+                  <h2 className="text-xl font-bold text-foreground">Is one of these you?</h2>
+                  <p className="text-xs text-muted-foreground">{linkCandidates.group.name}</p>
+                </div>
+              </div>
+              <button aria-label="Close" onClick={onClose} className="rounded-lg p-2 text-muted-foreground hover:bg-muted">
+                <X className="size-4" />
+              </button>
+            </div>
+
+            <div className="mt-5 flex flex-col gap-3">
+              <p className="text-xs text-muted-foreground">
+                We found guest members in this group. If one of these is you, select your name to link your account and preserve past expenses and splits:
+              </p>
+
+              <div className="flex flex-col gap-2">
+                {linkCandidates.candidates.map((cand) => (
+                  <Button
+                    key={cand.participantId}
+                    variant="outline"
+                    className="h-12 justify-between px-4 text-left border-border hover:border-primary/60 hover:bg-primary/5"
+                    onClick={() => handleConfirmLink(cand.participantId)}
+                    disabled={loading}
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <div className="grid size-7 place-items-center rounded-full bg-primary/15 text-xs font-bold text-primary">
+                        {initialsOf(cand.guestName)}
+                      </div>
+                      <span className="font-semibold text-foreground">{cand.guestName}</span>
+                    </div>
+                    <span className="text-xs text-primary font-medium">Link this guest →</span>
+                  </Button>
+                ))}
+              </div>
+
+              <div className="relative my-2">
+                <div className="absolute inset-0 flex items-center"><Separator /></div>
+                <div className="relative flex justify-center text-xs uppercase"><span className="bg-card px-2 text-muted-foreground">or</span></div>
+              </div>
+
+              <Button
+                variant="ghost"
+                className="h-10 text-xs font-medium text-muted-foreground hover:text-foreground"
+                onClick={() => handleConfirmLink(null)}
+                disabled={loading}
+              >
+                No, add me as a new member
+              </Button>
+
+              {error && (
+                <div className="rounded-lg bg-rose-500/10 p-3 text-center text-xs font-medium text-rose-500">
+                  {error}
+                </div>
+              )}
+
+              {loading && (
+                <div className="flex justify-center py-2">
+                  <Loader2 className="size-4 animate-spin text-primary" />
+                </div>
+              )}
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="flex items-start justify-between">
+              <div className="flex items-center gap-3">
+                <div className="grid size-10 place-items-center rounded-xl bg-primary/10 text-primary">
+                  <KeyRound className="size-5" />
+                </div>
+                <div>
+                  <h2 className="text-xl font-bold text-foreground">Join a group</h2>
+                  <p className="text-xs text-muted-foreground">Enter the 6-digit code shared with you</p>
+                </div>
+              </div>
+              <button aria-label="Close" onClick={onClose} className="rounded-lg p-2 text-muted-foreground hover:bg-muted">
+                <X className="size-4" />
+              </button>
+            </div>
+
+            <div className="mt-6 flex flex-col gap-4">
+              <div>
+                <Input
+                  autoFocus
+                  type="text"
+                  inputMode="numeric"
+                  pattern="[0-9]*"
+                  maxLength={6}
+                  placeholder="000000"
+                  value={code}
+                  onChange={(e) => {
+                    const val = e.target.value.replace(/\D/g, '').slice(0, 6)
+                    setCode(val)
+                    if (error) setError(null)
+                  }}
+                  onKeyDown={(e) => e.key === 'Enter' && code.length === 6 && handleJoin()}
+                  className="h-14 text-center text-3xl font-mono font-bold tracking-[0.3em] placeholder:text-muted-foreground/30 focus-visible:ring-primary"
+                />
+                <p className="mt-2 text-center text-xs text-muted-foreground">
+                  Ask any existing member or the group creator for their 6-digit key.
+                </p>
+              </div>
+
+              {error && (
+                <div className="rounded-lg bg-rose-500/10 p-3 text-center text-xs font-medium text-rose-500">
+                  {error}
+                </div>
+              )}
+
+              <Button
+                className="h-11 font-semibold"
+                onClick={handleJoin}
+                disabled={loading || code.length !== 6}
+              >
+                {loading ? <Loader2 className="size-4 animate-spin" /> : 'Join Group'}
+              </Button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Host manual merge modal — merge unlinked guest into linked member
+// ---------------------------------------------------------------------------
+function MergeGuestModal({
+  groupId,
+  participants,
+  onClose,
+  onMerged,
+}: {
+  groupId: number
+  participants: Participant[]
+  onClose: () => void
+  onMerged: () => void
+}) {
+  const unlinkedGuests = participants.filter((p) => p.user_id === null && p.status === 'guest')
+  const linkedMembers = participants.filter((p) => p.user_id !== null && p.status === 'active')
+
+  const [selectedGuestId, setSelectedGuestId] = useState<number | ''>(
+    unlinkedGuests[0]?.participant_id ?? ''
+  )
+  const [selectedTargetId, setSelectedTargetId] = useState<number | ''>(
+    linkedMembers[0]?.participant_id ?? ''
+  )
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function handleMerge() {
+    if (!selectedGuestId || !selectedTargetId) {
+      setError('Please select both a guest and a member to merge into')
+      return
+    }
+    setLoading(true)
+    setError(null)
+    try {
+      await mergeParticipants(groupId, Number(selectedGuestId), Number(selectedTargetId))
+      onMerged()
+      onClose()
+    } catch (err: any) {
+      setError(err.message || 'Failed to merge members')
     } finally {
       setLoading(false)
     }
@@ -909,11 +1109,11 @@ function JoinGroupModal({
         <div className="flex items-start justify-between">
           <div className="flex items-center gap-3">
             <div className="grid size-10 place-items-center rounded-xl bg-primary/10 text-primary">
-              <KeyRound className="size-5" />
+              <GitMerge className="size-5" />
             </div>
             <div>
-              <h2 className="text-xl font-bold text-foreground">Join a group</h2>
-              <p className="text-xs text-muted-foreground">Enter the 6-digit code shared with you</p>
+              <h2 className="text-xl font-bold text-foreground">Merge guest into member</h2>
+              <p className="text-xs text-muted-foreground">Host action: transfer guest history to a member</p>
             </div>
           </div>
           <button aria-label="Close" onClick={onClose} className="rounded-lg p-2 text-muted-foreground hover:bg-muted">
@@ -921,28 +1121,67 @@ function JoinGroupModal({
           </button>
         </div>
 
-        <div className="mt-6 flex flex-col gap-4">
+        <div className="mt-5 flex flex-col gap-4">
           <div>
-            <Input
-              autoFocus
-              type="text"
-              inputMode="numeric"
-              pattern="[0-9]*"
-              maxLength={6}
-              placeholder="000000"
-              value={code}
-              onChange={(e) => {
-                const val = e.target.value.replace(/\D/g, '').slice(0, 6)
-                setCode(val)
-                if (error) setError(null)
-              }}
-              onKeyDown={(e) => e.key === 'Enter' && code.length === 6 && handleJoin()}
-              className="h-14 text-center text-3xl font-mono font-bold tracking-[0.3em] placeholder:text-muted-foreground/30 focus-visible:ring-primary"
-            />
-            <p className="mt-2 text-center text-xs text-muted-foreground">
-              Ask any existing member or the group creator for their 6-digit key.
-            </p>
+            <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+              1. Select Unlinked Guest
+            </label>
+            <div className="mt-2 flex flex-col gap-1.5 max-h-36 overflow-y-auto pr-1">
+              {unlinkedGuests.map((g) => {
+                const isSelected = g.participant_id === selectedGuestId
+                return (
+                  <button
+                    key={g.participant_id}
+                    type="button"
+                    onClick={() => setSelectedGuestId(g.participant_id)}
+                    className={cn(
+                      'flex items-center justify-between rounded-lg border p-2.5 text-left text-sm transition-colors',
+                      isSelected
+                        ? 'border-primary bg-primary/10 text-foreground font-semibold'
+                        : 'border-border bg-muted/30 text-muted-foreground hover:bg-muted/60'
+                    )}
+                  >
+                    <span>{g.name}</span>
+                    <Badge variant="outline" className="text-[10px]">Guest</Badge>
+                  </button>
+                )
+              })}
+            </div>
           </div>
+
+          <div>
+            <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+              2. Merge Into Registered Member
+            </label>
+            <div className="mt-2 flex flex-col gap-1.5 max-h-36 overflow-y-auto pr-1">
+              {linkedMembers.map((m) => {
+                const isSelected = m.participant_id === selectedTargetId
+                return (
+                  <button
+                    key={m.participant_id}
+                    type="button"
+                    onClick={() => setSelectedTargetId(m.participant_id)}
+                    className={cn(
+                      'flex items-center justify-between rounded-lg border p-2.5 text-left text-sm transition-colors',
+                      isSelected
+                        ? 'border-primary bg-primary/10 text-foreground font-semibold'
+                        : 'border-border bg-muted/30 text-muted-foreground hover:bg-muted/60'
+                    )}
+                  >
+                    <div>
+                      <p className="font-semibold text-foreground">{m.name}</p>
+                      {m.email && <p className="text-xs text-muted-foreground">{m.email}</p>}
+                    </div>
+                    {isSelected && <Check className="size-4 text-primary" />}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+
+          <p className="text-xs text-muted-foreground bg-muted/40 rounded-lg p-3">
+            All expenses and splits associated with the guest will be safely transferred to the registered member, and the guest row will be removed.
+          </p>
 
           {error && (
             <div className="rounded-lg bg-rose-500/10 p-3 text-center text-xs font-medium text-rose-500">
@@ -952,10 +1191,10 @@ function JoinGroupModal({
 
           <Button
             className="h-11 font-semibold"
-            onClick={handleJoin}
-            disabled={loading || code.length !== 6}
+            onClick={handleMerge}
+            disabled={loading || !selectedGuestId || !selectedTargetId}
           >
-            {loading ? <Loader2 className="size-4 animate-spin" /> : 'Join Group'}
+            {loading ? <Loader2 className="size-4 animate-spin" /> : 'Confirm Merge'}
           </Button>
         </div>
       </div>

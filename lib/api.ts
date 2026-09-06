@@ -125,11 +125,45 @@ export const createGroup = (
     body: JSON.stringify({ name, icon, guests }),
   })
 
+export type JoinCandidate = { participantId: number; guestName: string }
+
+export type JoinGroupResult =
+  | {
+      requiresLinkChoice: true
+      group: Group
+      candidates: JoinCandidate[]
+    }
+  | {
+      requiresLinkChoice?: false
+      group: Group
+      participant: Participant
+      alreadyMember: boolean
+      message: string
+    }
+
 export const joinGroup = (joinCode: string) =>
-  request<{ group: Group; participant: Participant; alreadyMember: boolean; message: string }>('/groups/join', {
+  request<JoinGroupResult>('/groups/join', {
     method: 'POST',
     body: JSON.stringify({ joinCode }),
   })
+
+export const confirmJoinGroup = (groupId: number, linkToParticipantId: number | null) =>
+  request<{ group: Group; participant: Participant; alreadyMember: boolean; message: string }>(
+    `/groups/${groupId}/join/confirm`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ linkToParticipantId }),
+    }
+  )
+
+export const mergeParticipants = (groupId: number, unlinkedParticipantId: number, targetParticipantId: number) =>
+  request<{ success: boolean; message: string; unlinkedParticipantId: number; targetParticipantId: number }>(
+    `/groups/${groupId}/participants/merge`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ unlinkedParticipantId, targetParticipantId }),
+    }
+  )
 
 export const regenerateGroupKey = (groupId: number) =>
   request<{ groupId: number; join_code: string; message: string }>(`/groups/${groupId}/regenerate-key`, {
