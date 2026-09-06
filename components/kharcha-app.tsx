@@ -1546,6 +1546,12 @@ function GroupView({
       }
     })
 
+    socket.on('members-merged', (data: { groupId: number }) => {
+      if (Number(data.groupId) === Number(groupId)) {
+        loadAll()
+      }
+    })
+
     return () => {
       socket.emit('leave-group', groupId)
       socket.disconnect()
@@ -1639,6 +1645,11 @@ function GroupView({
           <Button variant="outline" onClick={() => setRemoveMembersOpen(true)}>
             <UserMinus className="mr-1 size-4" /> Remove member
           </Button>
+          {isCreator && participants.some((p) => p.user_id === null && p.status === 'guest') && (
+            <Button variant="outline" onClick={() => setMergeModalOpen(true)}>
+              <GitMerge className="mr-1 size-4" /> Merge guest
+            </Button>
+          )}
           <Button variant="outline" onClick={() => setExpenseOpen(true)}><Plus className="mr-1 size-4" /> Expense</Button>
           <Button onClick={() => setTab('settle')} className="bg-primary text-primary-foreground hover:bg-primary/90">
             <Receipt className="mr-1 size-4" /> Settle up
@@ -1800,6 +1811,15 @@ function GroupView({
           creatorId={group.created_by}
           onClose={() => setRemoveMembersOpen(false)}
           onRemoved={loadAll}
+        />
+      )}
+
+      {mergeModalOpen && (
+        <MergeGuestModal
+          groupId={groupId}
+          participants={participants}
+          onClose={() => setMergeModalOpen(false)}
+          onMerged={loadAll}
         />
       )}
     </>
