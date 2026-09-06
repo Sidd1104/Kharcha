@@ -11,7 +11,9 @@ router.get('/:groupId/expenses', requireGroupMember, async (req, res) => {
   const { groupId } = req.params;
   try {
     const { rows } = await pool.query(
-      `SELECT e.id, e.amount, e.description, e.category, e.created_at,
+      `SELECT e.id, e.amount, e.description, e.category,
+              COALESCE(e.split_type, 'equal') AS split_type,
+              e.created_at,
               gp.id AS paid_by_id,
               COALESCE(u.name, gp.guest_name) AS paid_by_name
        FROM expenses e
@@ -43,6 +45,7 @@ router.post('/:groupId/expenses', requireGroupMember, async (req, res) => {
   try {
     await client.query('BEGIN');
 
+    const splitType = (splits && Array.isArray(splits) && splits.length > 0) ? 'custom' : 'equal';
     let finalSplits = splits;
     if (!finalSplits || finalSplits.length === 0) {
       // Equal split among all active & guest participants (not invited)
@@ -51,8 +54,13 @@ router.post('/:groupId/expenses', requireGroupMember, async (req, res) => {
         [groupId]
       );
       const participantIds = participantsResult.rows.map((r) => r.participant_id);
-      const equalShare = Math.round((amount / participantIds.length) * 100) / 100;
-      finalSplits = participantIds.map((participantId) => ({ participantId, shareAmount: equalShare }));
+      const n = participantIds.length;
+      const baseShare = Math.floor((amount / n) * 100) / 100;
+      const remainder = Math.round((amount - (baseShare * n)) * 100) / 100;
+      finalSplits = participantIds.map((participantId, idx) => ({
+        participantId,
+        shareAmount: (idx === 0) ? Math.round((baseShare + remainder) * 100) / 100 : baseShare,
+      }));
     }
 
     const totalSplit = finalSplits.reduce((sum, s) => sum + Number(s.shareAmount), 0);
@@ -62,9 +70,9 @@ router.post('/:groupId/expenses', requireGroupMember, async (req, res) => {
     }
 
     const expenseResult = await client.query(
-      `INSERT INTO expenses (group_id, paid_by, amount, description, category)
-       VALUES ($1, $2, $3, $4, $5) RETURNING *`,
-      [groupId, paidBy, amount, description, category || 'Other']
+      `INSERT INTO expenses (group_id, paid_by, amount, description, category, split_type)
+       VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+      [groupId, paidBy, amount, description, category || 'Other', splitType]
     );
     const expense = expenseResult.rows[0];
 
