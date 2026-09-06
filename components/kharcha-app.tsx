@@ -1482,7 +1482,8 @@ function GroupView({
   const [keyCopied, setKeyCopied] = useState(false)
   const [regeneratingKey, setRegeneratingKey] = useState(false)
 
-  async function loadAll() {
+  async function loadAll(trigger = 'manual') {
+    console.log('[Diagnostic] loadAll called, trigger =', trigger, 'tab =', tab)
     setLoading(true)
     try {
       const [detail, exp, bal] = await Promise.all([
@@ -1500,65 +1501,94 @@ function GroupView({
   }
 
   async function loadSettlements() {
+    console.log('[Diagnostic] loadSettlements called')
     const s = await fetchSettlements(groupId)
     setSettlements(s.transactions)
   }
 
-  useEffect(() => { loadAll() }, [groupId])
-  useEffect(() => { if (tab === 'settle') loadSettlements() }, [tab])
+  useEffect(() => {
+    console.log('[Diagnostic] useEffect [groupId] fired')
+    loadAll('mount/groupId')
+  }, [groupId])
+
+  useEffect(() => {
+    console.log('[Diagnostic] useEffect [tab] fired, tab =', tab)
+    if (tab === 'settle') loadSettlements()
+  }, [tab])
 
   // Real-time Socket.IO synchronization for this group
   useEffect(() => {
     const token = getToken()
     if (!token) return
 
+    console.log('[Diagnostic] Socket.IO useEffect initializing with deps [groupId, tab], tab =', tab)
     const socket = io(process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000', {
       auth: { token },
       transports: ['websocket'],
     })
 
     socket.on('connect', () => {
+      console.log('[Diagnostic Socket] Connected:', socket.id, 'joining room:', groupId)
       socket.emit('join-group', groupId)
     })
 
+    socket.on('disconnect', (reason) => {
+      console.log('[Diagnostic Socket] Disconnected, reason =', reason)
+    })
+
+    socket.on('connect_error', (err) => {
+      console.warn('[Diagnostic Socket] connect_error:', err.message)
+    })
+
+    socket.io.on('reconnect_attempt', (attempt) => {
+      console.log('[Diagnostic Socket] reconnect_attempt #', attempt)
+    })
+
     socket.on('member-joined', (data: { groupId: number; participant: any }) => {
+      console.log('[Diagnostic Socket] event member-joined', data)
       if (Number(data.groupId) === Number(groupId)) {
-        loadAll()
+        loadAll('socket:member-joined')
       }
     })
 
     socket.on('key-regenerated', (data: { groupId: number; newKey: string }) => {
+      console.log('[Diagnostic Socket] event key-regenerated', data)
       if (Number(data.groupId) === Number(groupId)) {
         setGroup((prev) => (prev ? { ...prev, join_code: data.newKey } : prev))
       }
     })
 
     socket.on('expense-created', (data: { groupId: number; expense: any }) => {
+      console.log('[Diagnostic Socket] event expense-created', data)
       if (Number(data.groupId) === Number(groupId)) {
-        loadAll()
+        loadAll('socket:expense-created')
       }
     })
 
     socket.on('settlement-confirmed', (data: { groupId: number }) => {
+      console.log('[Diagnostic Socket] event settlement-confirmed', data)
       if (Number(data.groupId) === Number(groupId)) {
-        loadAll()
+        loadAll('socket:settlement-confirmed')
         if (tab === 'settle') loadSettlements()
       }
     })
 
     socket.on('member-removed', (data: { groupId: number; removedIds: number[] }) => {
+      console.log('[Diagnostic Socket] event member-removed', data)
       if (Number(data.groupId) === Number(groupId)) {
-        loadAll()
+        loadAll('socket:member-removed')
       }
     })
 
     socket.on('members-merged', (data: { groupId: number }) => {
+      console.log('[Diagnostic Socket] event members-merged', data)
       if (Number(data.groupId) === Number(groupId)) {
-        loadAll()
+        loadAll('socket:members-merged')
       }
     })
 
     return () => {
+      console.log('[Diagnostic Socket] Cleanup: disconnecting socket on tab/groupId change, tab was:', tab)
       socket.emit('leave-group', groupId)
       socket.disconnect()
     }
