@@ -1765,7 +1765,20 @@ function GroupView({
                   <div key={expense.id} className="flex items-center gap-4 border-b border-border p-4 last:border-0 sm:p-5">
                     <div className="grid size-10 shrink-0 place-items-center rounded-lg bg-accent text-accent-foreground"><Icon className="size-4" /></div>
                     <div className="min-w-0 flex-1">
-                      <p className="truncate font-semibold text-foreground">{expense.description}</p>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="truncate font-semibold text-foreground">{expense.description}</p>
+                        <Badge
+                          variant="outline"
+                          className={cn(
+                            'text-[10px] font-normal py-0 px-1.5',
+                            expense.split_type === 'custom'
+                              ? 'border-indigo-500/30 bg-indigo-500/10 text-indigo-400'
+                              : 'border-zinc-700 bg-zinc-800/40 text-zinc-300'
+                          )}
+                        >
+                          {expense.split_type === 'custom' ? 'Split unequally' : 'Split equally'}
+                        </Badge>
+                      </div>
                       <p className="mt-0.5 text-sm text-muted-foreground">
                         {expense.paid_by_name} paid · {new Date(expense.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
                       </p>

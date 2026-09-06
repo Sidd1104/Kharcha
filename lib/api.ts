@@ -203,6 +203,7 @@ export type Expense = {
   amount: string
   description: string
   category: string
+  split_type?: 'equal' | 'custom'
   created_at: string
   paid_by_id: number
   paid_by_name: string
