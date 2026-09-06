@@ -1471,6 +1471,7 @@ function GroupView({
   const [expenseOpen, setExpenseOpen] = useState(false)
   const [addPersonOpen, setAddPersonOpen] = useState(false)
   const [removeMembersOpen, setRemoveMembersOpen] = useState(false)
+  const [mergeModalOpen, setMergeModalOpen] = useState(false)
   const [paidKeys, setPaidKeys] = useState<string[]>([])
   const [keyCopied, setKeyCopied] = useState(false)
   const [regeneratingKey, setRegeneratingKey] = useState(false)
