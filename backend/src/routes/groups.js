@@ -718,27 +718,67 @@ async function handleRemoveParticipants(req, res) {
 
       // d. For each affected expense, rebalance the remaining splits
       for (const row of affectedSplits.rows) {
-        const expRes = await client.query('SELECT id, amount FROM expenses WHERE id = $1', [row.expense_id]);
+        const expRes = await client.query(
+          "SELECT id, amount, COALESCE(split_type, 'equal') AS split_type FROM expenses WHERE id = $1",
+          [row.expense_id]
+        );
         if (expRes.rows.length === 0) continue; // Expense was deleted in step a
-        const totalAmount = Number(expRes.rows[0].amount);
+        const expense = expRes.rows[0];
 
+        // 1. Equal-split expenses: skip rebalancing entirely.
+        // Part 3 dynamically computes equal shares at read time based on current participant count.
+        if (expense.split_type === 'equal') {
+          continue;
+        }
+
+        // 2. Custom-split expenses: redistribute departed share proportionally to existing shares
+        const totalAmount = Number(expense.amount);
         const remSplits = await client.query(
-          'SELECT id FROM expense_splits WHERE expense_id = $1 ORDER BY id ASC',
+          'SELECT id, participant_id, share_amount FROM expense_splits WHERE expense_id = $1 ORDER BY id ASC',
           [row.expense_id]
         );
 
         if (remSplits.rows.length === 0) {
-          // If no splits remain, remove the empty expense
+          // Edge case: if departing participant was the only split on this expense, delete the empty expense
           await client.query('DELETE FROM expenses WHERE id = $1', [row.expense_id]);
+          continue;
+        }
+
+        const n = remSplits.rows.length;
+        const currentRemSum = remSplits.rows.reduce((sum, r) => sum + Number(r.share_amount), 0);
+
+        if (currentRemSum > 0) {
+          let allocatedSum = 0;
+          const newShares = [];
+          for (let i = 0; i < n; i++) {
+            const s = Number(remSplits.rows[i].share_amount);
+            // Redistribute proportionally to existing relative shares, rounded to 2 decimal places (paise/cents)
+            const rawShare = Math.round((totalAmount * (s / currentRemSum)) * 100) / 100;
+            newShares.push(rawShare);
+            allocatedSum += rawShare;
+          }
+
+          // Edge case rounding: assign any leftover remainder to the first remaining split
+          const remainder = Math.round((totalAmount - allocatedSum) * 100) / 100;
+          newShares[0] = Math.round((newShares[0] + remainder) * 100) / 100;
+
+          for (let i = 0; i < n; i++) {
+            await client.query('UPDATE expense_splits SET share_amount = $1 WHERE id = $2', [
+              newShares[i],
+              remSplits.rows[i].id,
+            ]);
+          }
         } else {
-          // Rebalance splits equally among remaining participants
-          const n = remSplits.rows.length;
+          // Fallback if all remaining shares were 0: distribute equally
           const baseShare = Math.floor((totalAmount / n) * 100) / 100;
-          let remainder = Math.round((totalAmount - (baseShare * n)) * 100) / 100;
+          const remainder = Math.round((totalAmount - (baseShare * n)) * 100) / 100;
 
           for (let i = 0; i < n; i++) {
             const share = (i === 0) ? Math.round((baseShare + remainder) * 100) / 100 : baseShare;
-            await client.query('UPDATE expense_splits SET share_amount = $1 WHERE id = $2', [share, remSplits.rows[i].id]);
+            await client.query('UPDATE expense_splits SET share_amount = $1 WHERE id = $2', [
+              share,
+              remSplits.rows[i].id,
+            ]);
           }
         }
       }
