@@ -107,6 +107,8 @@ router.post('/join', joinLimiter, async (req, res) => {
     return res.status(400).json({ error: 'Join code must be a 6-digit number' });
   }
 
+  console.log(`[Join] User ${req.user.id} (${req.user.email}) attempting to join with code "${sanitizedCode}"`);
+
   try {
     // 2. Lookup group
     const { rows: groupRows } = await pool.query(
@@ -231,6 +233,7 @@ router.post('/join', joinLimiter, async (req, res) => {
     );
 
     if (candidates.length > 0) {
+      console.log(`[Join] Group ${group.id} ("${group.name}") has ${candidates.length} unlinked candidate(s). Returning requiresLinkChoice: true`);
       return res.status(200).json({
         requiresLinkChoice: true,
         group: {
@@ -295,6 +298,8 @@ router.post('/:id/join/confirm', joinLimiter, async (req, res) => {
   const { id } = req.params;
   const { linkToParticipantId } = req.body;
 
+  console.log(`[Join Confirm] User ${req.user.id} (${req.user.email}) confirming join for group ${id} (linkToParticipantId: ${linkToParticipantId})`);
+
   try {
     const { rows: groupRows } = await pool.query('SELECT * FROM groups WHERE id = $1', [id]);
     const group = groupRows[0];
@@ -351,10 +356,10 @@ router.post('/:id/join/confirm', joinLimiter, async (req, res) => {
         await pool.query('DELETE FROM group_participants WHERE id = $1', [existing.id]);
       }
 
-      // Update participant to link user_id and set status = 'active'
+      // Update participant to link user_id and set status = 'active', joined_via = 'join_key'
       // Keep guest_name intact as display fallback
       const updateResult = await pool.query(
-        "UPDATE group_participants SET user_id = $1, status = 'active' WHERE id = $2 RETURNING *",
+        "UPDATE group_participants SET user_id = $1, status = 'active', joined_via = 'join_key' WHERE id = $2 RETURNING *",
         [req.user.id, candidate.id]
       );
       participant = updateResult.rows[0];

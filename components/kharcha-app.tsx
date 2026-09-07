@@ -1474,6 +1474,7 @@ function GroupView({
   const [balances, setBalances] = useState<Balance[]>([])
   const [settlements, setSettlements] = useState<SettlementTxn[]>([])
   const [initialLoading, setInitialLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [expenseOpen, setExpenseOpen] = useState(false)
   const [addPersonOpen, setAddPersonOpen] = useState(false)
   const [removeMembersOpen, setRemoveMembersOpen] = useState(false)
@@ -1487,6 +1488,7 @@ function GroupView({
 
   async function loadAll(isInitial = false) {
     if (isInitial) setInitialLoading(true)
+    setLoadError(null)
     const seq = ++fetchSeqRef.current
     try {
       const [detail, exp, bal] = await Promise.all([
@@ -1501,6 +1503,9 @@ function GroupView({
       setParticipants(detail.participants)
       setExpenses(exp.expenses)
       setBalances(bal.balances)
+    } catch (err: any) {
+      if (seq !== fetchSeqRef.current) return
+      setLoadError(err.message || 'Failed to load group details')
     } finally {
       if (isInitial) setInitialLoading(false)
     }
