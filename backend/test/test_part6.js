@@ -182,7 +182,7 @@ async function runPart6RegressionTests() {
       { Authorization: `Bearer ${joinerToken}` },
       { description: 'Group Lunch', amount: 900, paidBy: linkedRow.id }
     );
-    assert.strictEqual(addExpenseRes.status, 200, 'Adding expense must succeed after confirming join');
+    assert.strictEqual(addExpenseRes.status, 201, 'Adding expense must succeed after confirming join (201 Created)');
     assert.strictEqual(addExpenseRes.body.expense.description, 'Group Lunch');
     assert.strictEqual(Number(addExpenseRes.body.expense.amount), 900);
     console.log('   ✅ Confirmed: Expense added successfully immediately after join confirm');
@@ -222,7 +222,7 @@ async function runPart6RegressionTests() {
       { Authorization: `Bearer ${newMemberToken}` },
       { description: 'Coffee', amount: 150, paidBy: newMemberRow.id }
     );
-    assert.strictEqual(addExpenseResC.status, 200, 'New member can add expense immediately');
+    assert.strictEqual(addExpenseResC.status, 201, 'New member can add expense immediately (201 Created)');
     console.log('   ✅ Confirmed: New member joined with joined_via="join_key" and added expense');
 
     console.log('\n🎉 ALL PART 6 REGRESSION TESTS PASSED CLEANLY!\n');
