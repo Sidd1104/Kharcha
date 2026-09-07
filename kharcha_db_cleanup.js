@@ -51,13 +51,16 @@ async function main() {
       (SELECT COUNT(*) FROM expenses) AS expenses
   `);
   console.log('Current data in this database:', counts.rows[0]);
-  const answer = await confirm(
-    `\nThis will PERMANENTLY DELETE all rows above from ${DATABASE_URL.split('@')[1] || 'this database'}.\nType "yes" to continue: `
-  );
-  if (answer !== 'yes') {
-    console.log('Aborted — nothing was deleted.');
-    await client.end();
-    return;
+  const autoConfirm = process.argv.includes('--force') || process.argv.includes('-y');
+  if (!autoConfirm) {
+    const answer = await confirm(
+      `\nThis will PERMANENTLY DELETE all rows above from ${DATABASE_URL.split('@')[1] || 'this database'}.\nType "yes" to continue: `
+    );
+    if (answer !== 'yes') {
+      console.log('Aborted — nothing was deleted.');
+      await client.end();
+      return;
+    }
   }
 
   // Order doesn't matter with TRUNCATE ... CASCADE, but list every table
