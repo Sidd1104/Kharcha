@@ -1636,6 +1636,19 @@ function GroupView({
     }
   }
 
+  if (loadError) {
+    return (
+      <div className="mx-auto max-w-md mt-16 rounded-2xl border border-destructive/30 bg-destructive/10 p-6 text-center">
+        <AlertTriangle className="mx-auto size-10 text-destructive mb-3" />
+        <h3 className="text-lg font-bold text-foreground">Access Denied</h3>
+        <p className="mt-2 text-sm text-muted-foreground">{loadError}</p>
+        <Button onClick={onBack} variant="outline" className="mt-5">
+          <ArrowLeft className="mr-2 size-4" /> Back to Dashboard
+        </Button>
+      </div>
+    )
+  }
+
   if (initialLoading || !group) {
     return <div className="mt-16 flex justify-center"><Loader2 className="size-6 animate-spin text-muted-foreground" /></div>
   }
@@ -1895,11 +1908,6 @@ function GroupView({
                               Host
                             </Badge>
                           )}
-                          {isGuest && (
-                            <Badge variant="outline" className="text-[10px] font-medium py-0 px-1.5 border-amber-500/40 text-amber-500 bg-amber-500/10">
-                              Guest
-                            </Badge>
-                          )}
                         </div>
                         <p className="text-xs text-muted-foreground mt-0.5">
                           {p.email || (isGuest ? 'Added directly by name' : 'Active member')}
@@ -1908,37 +1916,30 @@ function GroupView({
                     </div>
 
                     <div className="flex items-center gap-2.5">
-                      {/* Joined Via Label */}
-                      <Badge
-                        variant="outline"
-                        className={cn(
-                          'text-xs font-normal py-1 px-2.5 gap-1.5',
-                          joinedByKey
-                            ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-400'
-                            : 'border-zinc-700 bg-zinc-800/40 text-zinc-300'
-                        )}
-                      >
-                        {joinedByKey ? (
-                          <>
-                            <KeyRound className="size-3 text-emerald-400" /> Joined by key
-                          </>
-                        ) : (
-                          <>
-                            <User className="size-3 text-zinc-400" /> Added by host
-                          </>
-                        )}
-                      </Badge>
-
-                      {/* Host merge action if guest */}
-                      {isCreator && isGuest && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-8 text-xs text-muted-foreground hover:text-foreground"
-                          onClick={() => setMergeModalOpen(true)}
+                      {/* 6B: Single badge per participant */}
+                      {!isHost && isGuest && (
+                        <Badge
+                          variant="outline"
+                          className="text-xs font-normal py-1 px-2.5 border-amber-500/40 text-amber-500 bg-amber-500/10"
                         >
-                          <GitMerge className="mr-1 size-3.5" /> Merge
-                        </Button>
+                          Guest
+                        </Badge>
+                      )}
+                      {!isHost && !isGuest && joinedByKey && (
+                        <Badge
+                          variant="outline"
+                          className="text-xs font-normal py-1 px-2.5 gap-1.5 border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
+                        >
+                          <KeyRound className="size-3 text-emerald-400" /> Joined by key
+                        </Badge>
+                      )}
+                      {!isHost && !isGuest && !joinedByKey && (
+                        <Badge
+                          variant="outline"
+                          className="text-xs font-normal py-1 px-2.5 gap-1.5 border-zinc-700 bg-zinc-800/40 text-zinc-300"
+                        >
+                          <User className="size-3 text-zinc-400" /> Member
+                        </Badge>
                       )}
                     </div>
                   </div>
