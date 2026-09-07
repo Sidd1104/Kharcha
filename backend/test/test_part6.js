@@ -59,6 +59,12 @@ async function runPart6RegressionTests() {
   const joinerEmail = `joiner_p6_${timestamp}@test.com`;
   const newMemberEmail = `newmem_p6_${timestamp}@test.com`;
 
+  // Resync sequences in case manual inserts desynced identity counters
+  await pool.query("SELECT setval('users_id_seq', (SELECT GREATEST(COALESCE(MAX(id), 0), 1) FROM users))");
+  await pool.query("SELECT setval('groups_id_seq', (SELECT GREATEST(COALESCE(MAX(id), 0), 1) FROM groups))");
+  await pool.query("SELECT setval('group_participants_id_seq', (SELECT GREATEST(COALESCE(MAX(id), 0), 1) FROM group_participants))");
+  await pool.query("SELECT setval('expenses_id_seq', (SELECT GREATEST(COALESCE(MAX(id), 0), 1) FROM expenses))");
+
   // 1. Create test users
   const userHostRes = await pool.query(
     "INSERT INTO users (name, email, password_hash) VALUES ('Aditi Host', $1, 'hashedpass') RETURNING id, name, email",
