@@ -905,10 +905,14 @@ function JoinGroupModal({
     try {
       const res = await joinGroup(cleanCode)
       if (res.requiresLinkChoice) {
+        // Show candidate modal on the JOIN screen itself (before navigation)
         setLinkCandidates({ group: res.group, candidates: res.candidates })
-      } else {
+      } else if (res.participant) {
+        // Only navigate into the group view if participant row is confirmed
         onJoined(res.group.id)
         onClose()
+      } else {
+        setError('Unable to verify membership. Please try again.')
       }
     } catch (err: any) {
       setError(err.message || 'Failed to join group')
@@ -922,9 +926,14 @@ function JoinGroupModal({
     setLoading(true)
     setError(null)
     try {
-      await confirmJoinGroup(linkCandidates.group.id, participantId)
-      onJoined(linkCandidates.group.id)
-      onClose()
+      const confirmRes = await confirmJoinGroup(linkCandidates.group.id, participantId)
+      // Only navigate after /join/confirm succeeds and returns a confirmed participant
+      if (confirmRes && confirmRes.participant) {
+        onJoined(linkCandidates.group.id)
+        onClose()
+      } else {
+        setError('Could not complete group join. Please try again.')
+      }
     } catch (err: any) {
       setError(err.message || 'Failed to complete joining group')
     } finally {
@@ -938,12 +947,20 @@ function JoinGroupModal({
         {linkCandidates ? (
           <>
             <div className="flex items-start justify-between">
-              <div className="flex items-center gap-3">
-                <div className="grid size-10 place-items-center rounded-xl bg-primary/10 text-primary">
-                  <UserCheck className="size-5" />
+              <div className="flex items-center gap-2.5">
+                <button
+                  type="button"
+                  onClick={() => setLinkCandidates(null)}
+                  className="rounded-lg p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+                  title="Back to key entry"
+                >
+                  <ArrowLeft className="size-4" />
+                </button>
+                <div className="grid size-9 place-items-center rounded-xl bg-primary/10 text-primary">
+                  <UserCheck className="size-4" />
                 </div>
                 <div>
-                  <h2 className="text-xl font-bold text-foreground">Is one of these you?</h2>
+                  <h2 className="text-lg font-bold text-foreground leading-tight">Is one of these you?</h2>
                   <p className="text-xs text-muted-foreground">{linkCandidates.group.name}</p>
                 </div>
               </div>
