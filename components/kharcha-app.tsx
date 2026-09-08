@@ -14,7 +14,7 @@ import { Separator } from '@/components/ui/separator'
 import { cn } from '@/lib/utils'
 import { io } from 'socket.io-client'
 import {
-  AuthUser, Balance, Expense, Group, JoinCandidate, Participant, PendingInvite, SettlementTxn,
+  AuthUser, Balance, Expense, Group, JoinCandidate, Participant, PendingInvite, SettledHistoryTxn, SettlementTxn,
   acceptInvite, addExpense, addGuest, checkGoogleOAuthConfig, clearSession,
   confirmJoinGroup, confirmSettlement, createGroup, declineInvite, fetchBalances,
   fetchExpenses, fetchGroupDetail, fetchGroups, fetchNotifications, fetchSettlements,
@@ -29,6 +29,17 @@ const CATEGORY_ICONS: Record<string, any> = {
 function initialsOf(name: string) {
   if (!name) return 'U'
   return name.split(' ').map((p) => p[0]).join('').slice(0, 2).toUpperCase()
+}
+
+function formatGroupDate(dateStr?: string | null) {
+  if (!dateStr) return null
+  try {
+    const d = new Date(dateStr)
+    if (isNaN(d.getTime())) return null
+    return d.toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' })
+  } catch {
+    return null
+  }
 }
 
 function getGreeting(name: string) {
@@ -1491,10 +1502,16 @@ function Dashboard({
                           </span>
                         )}
                       </div>
-                      <h3 className="mt-3.5 text-base font-bold text-foreground">{group.name}</h3>
-                      <p className="mt-0.5 text-sm text-muted-foreground">
-                        {group.member_count ?? 1} members · {group.expense_count ?? 0} expenses
-                      </p>
+                      <h3 className="mt-3.5 text-base font-bold text-foreground line-clamp-1">{group.name}</h3>
+                      <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+                        <span>{group.member_count ?? 1} members · {group.expense_count ?? 0} expenses</span>
+                        {group.created_at && (
+                          <>
+                            <span className="text-border/80">&bull;</span>
+                            <span>Created {formatGroupDate(group.created_at)}</span>
+                          </>
+                        )}
+                      </div>
                     </div>
 
                     <div className="mt-6 flex items-center justify-between">
@@ -1756,9 +1773,15 @@ function AllGroupsView({
                   <h3 className="mt-3.5 text-base font-bold text-foreground line-clamp-1">
                     {group.name}
                   </h3>
-                  <p className="mt-0.5 text-xs text-muted-foreground">
-                    {group.member_count ?? 1} members · {group.expense_count ?? 0} expenses
-                  </p>
+                  <div className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+                    <span>{group.member_count ?? 1} members · {group.expense_count ?? 0} expenses</span>
+                    {group.created_at && (
+                      <>
+                        <span className="text-border/80">&bull;</span>
+                        <span>Created {formatGroupDate(group.created_at)}</span>
+                      </>
+                    )}
+                  </div>
                 </div>
 
                 <div className="mt-6 flex items-center justify-between border-t border-border/40 pt-3">
@@ -1824,6 +1847,8 @@ function GroupView({
   const [regeneratingKey, setRegeneratingKey] = useState(false)
   const [settlingAll, setSettlingAll] = useState(false)
   const [settlementsLoading, setSettlementsLoading] = useState(false)
+  const [settledHistory, setSettledHistory] = useState<SettledHistoryTxn[]>([])
+  const [latestSettledAt, setLatestSettledAt] = useState<string | null>(null)
 
   // Race-condition sequence guard for background refreshes
   const fetchSeqRef = useRef(0)
@@ -1837,7 +1862,7 @@ function GroupView({
         fetchGroupDetail(groupId),
         fetchExpenses(groupId),
         fetchBalances(groupId),
-        fetchSettlements(groupId).catch(() => ({ transactions: [] })),
+        fetchSettlements(groupId).catch(() => ({ transactions: [], transactionCount: 0 })),
       ])
       // Ignore if a newer fetch was started
       if (seq !== fetchSeqRef.current) return
@@ -1847,6 +1872,8 @@ function GroupView({
       setExpenses(exp.expenses)
       setBalances(bal.balances)
       if (s?.transactions) setSettlements(s.transactions)
+      if (s?.settledHistory) setSettledHistory(s.settledHistory)
+      if (s?.latestSettledAt) setLatestSettledAt(s.latestSettledAt)
     } catch (err: any) {
       if (seq !== fetchSeqRef.current) return
       setLoadError(err.message || 'Failed to load group details')
@@ -1861,12 +1888,14 @@ function GroupView({
       const [exp, bal, s] = await Promise.all([
         fetchExpenses(groupId),
         fetchBalances(groupId),
-        fetchSettlements(groupId).catch(() => ({ transactions: [] })),
+        fetchSettlements(groupId).catch(() => ({ transactions: [], transactionCount: 0 })),
       ])
       if (seq !== fetchSeqRef.current) return
       setExpenses(exp.expenses)
       setBalances(bal.balances)
       if (s?.transactions) setSettlements(s.transactions)
+      if (s?.settledHistory) setSettledHistory(s.settledHistory)
+      if (s?.latestSettledAt) setLatestSettledAt(s.latestSettledAt)
     } catch (err) {
       console.error('Error updating expenses/balances:', err)
     }
@@ -1877,6 +1906,8 @@ function GroupView({
     try {
       const s = await fetchSettlements(groupId)
       setSettlements(s.transactions)
+      setSettledHistory(s.settledHistory || [])
+      setLatestSettledAt(s.latestSettledAt || null)
     } catch (err) {
       console.error('Error loading settlements:', err)
     } finally {
@@ -2065,6 +2096,12 @@ function GroupView({
                 <span className="text-sm text-muted-foreground">{activeParticipants.length} members</span>
               </button>
 
+              {group.created_at && (
+                <span className="text-xs text-muted-foreground">
+                  &bull; Created {formatGroupDate(group.created_at)}
+                </span>
+              )}
+
               {isGroupSettled && (
                 <span className="inline-flex items-center gap-1 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-xs font-semibold text-emerald-400">
                   <CheckCircle2 className="size-3" /> All Settled
@@ -2139,8 +2176,13 @@ function GroupView({
           <Button
             variant="outline"
             size="sm"
+            disabled={isGroupSettled}
             onClick={() => setExpenseOpen(true)}
-            className="h-8 px-2.5 sm:px-3 text-xs font-medium"
+            className={cn(
+              "h-8 px-2.5 sm:px-3 text-xs font-medium",
+              isGroupSettled && "opacity-50 cursor-not-allowed text-muted-foreground"
+            )}
+            title={isGroupSettled ? "This group is settled and closed" : "Add an expense"}
           >
             <Plus className="mr-1.5 size-3.5" /> Expense
           </Button>
@@ -2279,7 +2321,18 @@ function GroupView({
                 <h2 className="mt-3 text-2xl sm:text-3xl font-extrabold tracking-tight text-foreground">
                   This Group is Squared Up!
                 </h2>
-                <p className="mt-2 text-sm sm:text-base text-muted-foreground max-w-sm mx-auto">
+                <div className="mt-2.5">
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/25 px-3 py-1 text-xs font-semibold text-emerald-300">
+                    <CheckCircle2 className="size-3.5 text-emerald-400" />
+                    Squared up on{' '}
+                    {latestSettledAt
+                      ? formatGroupDate(latestSettledAt)
+                      : expenses.length > 0
+                      ? formatGroupDate(expenses[0]?.created_at)
+                      : formatGroupDate(new Date().toISOString())}
+                  </span>
+                </div>
+                <p className="mt-2.5 text-sm sm:text-base text-muted-foreground max-w-sm mx-auto">
                   All member expenses and settlements have been marked as paid. Every balance is clear at ₹0.
                 </p>
               </div>
@@ -2294,6 +2347,38 @@ function GroupView({
                   <p className="text-lg font-bold text-emerald-400">₹0 (Zero)</p>
                 </div>
               </div>
+
+              {settledHistory.length > 0 && (
+                <div className="mt-6 text-left border-t border-emerald-500/20 pt-4">
+                  <p className="text-xs font-semibold text-emerald-300 mb-2.5 flex items-center gap-1.5">
+                    <CheckCheck className="size-3.5 text-emerald-400" />
+                    Completed settlements ({settledHistory.length}):
+                  </p>
+                  <div className="flex flex-col gap-2 max-h-52 overflow-y-auto pr-1">
+                    {settledHistory.map((sh) => (
+                      <div
+                        key={sh.id}
+                        className="flex items-center justify-between rounded-lg bg-emerald-950/40 border border-emerald-500/20 px-3 py-2 text-xs"
+                      >
+                        <div className="flex items-center gap-2">
+                          <div className="grid size-6 place-items-center rounded-full bg-emerald-900/60 text-[10px] font-bold text-emerald-200">
+                            {initialsOf(sh.fromName)}
+                          </div>
+                          <span className="font-medium text-foreground">
+                            {sh.fromName} paid {sh.toName}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-emerald-400">₹{Math.round(sh.amount).toLocaleString('en-IN')}</span>
+                          <span className="inline-flex items-center text-[10px] text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20">
+                            Paid
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               <div className="mt-8 flex flex-col sm:flex-row items-center justify-center gap-3">
                 <Button
@@ -2334,17 +2419,67 @@ function GroupView({
           {tab === 'expenses' ? (
             <div className="mt-4">
               {isGroupSettled && (
-                <div className="mb-4 flex items-center justify-between rounded-xl border border-emerald-500/20 bg-emerald-950/20 px-4 py-3 text-sm text-emerald-300">
-                  <div className="flex items-center gap-2">
-                    <CheckCircle2 className="size-4 text-emerald-400" />
-                    <span className="font-medium">All expenses in this group have been fully settled.</span>
+                <div className="mb-5 space-y-4">
+                  <div className="flex items-center justify-between rounded-xl border border-emerald-500/20 bg-emerald-950/20 px-4 py-3 text-sm text-emerald-300">
+                    <div className="flex items-center gap-2.5">
+                      <CheckCircle2 className="size-4 text-emerald-400 shrink-0" />
+                      <div>
+                        <span className="font-medium text-foreground">All expenses in this group have been fully settled.</span>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          Squared up on{' '}
+                          {latestSettledAt
+                            ? formatGroupDate(latestSettledAt)
+                            : expenses.length > 0
+                            ? formatGroupDate(expenses[0]?.created_at)
+                            : formatGroupDate(new Date().toISOString())}
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => setTab('settle')}
+                      className="text-xs font-semibold text-emerald-400 hover:underline shrink-0 ml-3"
+                    >
+                      View squared up card →
+                    </button>
                   </div>
-                  <button
-                    onClick={() => setTab('settle')}
-                    className="text-xs font-semibold text-emerald-400 hover:underline"
-                  >
-                    View settlement details →
-                  </button>
+
+                  {settledHistory.length > 0 && (
+                    <div className="rounded-xl border border-border/80 bg-card p-4">
+                      <div className="flex items-center justify-between mb-3 border-b border-border/40 pb-2">
+                        <div className="flex items-center gap-2">
+                          <CheckCheck className="size-4 text-emerald-400" />
+                          <h4 className="text-xs sm:text-sm font-bold text-foreground">Completed Settlement Transactions</h4>
+                        </div>
+                        <span className="text-[10px] font-semibold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 rounded-full px-2 py-0.5">
+                          {settledHistory.length} paid
+                        </span>
+                      </div>
+
+                      <div className="flex flex-col gap-2">
+                        {settledHistory.map((sh) => (
+                          <div
+                            key={sh.id}
+                            className="flex items-center justify-between rounded-lg border border-border/40 bg-muted/20 px-3.5 py-2.5 text-xs sm:text-sm"
+                          >
+                            <div className="flex items-center gap-2.5">
+                              <div className="grid size-7 place-items-center rounded-full bg-zinc-800 text-[10px] font-bold text-zinc-300">
+                                {initialsOf(sh.fromName)}
+                              </div>
+                              <p className="font-medium text-foreground">
+                                <span className="font-semibold">{sh.fromName}</span> paid <span className="font-semibold">{sh.toName}</span>
+                              </p>
+                            </div>
+                            <div className="flex items-center gap-2.5">
+                              <span className="font-bold text-foreground">₹{Math.round(sh.amount).toLocaleString('en-IN')}</span>
+                              <span className="inline-flex items-center gap-1 rounded bg-emerald-500/15 border border-emerald-500/30 px-2 py-0.5 text-[10px] font-semibold text-emerald-400">
+                                <Check className="size-3" /> Paid
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
               <div className="overflow-hidden rounded-xl border border-border bg-card">

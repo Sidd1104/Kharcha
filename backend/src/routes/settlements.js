@@ -127,9 +127,44 @@ router.get('/:groupId/settlements', requireGroupMember, async (req, res) => {
     const hasExpenses = expenses.length > 0;
     const isSettled = hasExpenses && transactions.length === 0;
 
+    let settledHistory = [];
+    let latestSettledAt = null;
+
+    try {
+      const historyResult = await pool.query(
+        `SELECT s.id, s.amount, s.settled_at,
+                COALESCE(uf.name, gpf.guest_name, 'Unknown') AS from_name,
+                COALESCE(ut.name, gpt.guest_name, 'Unknown') AS to_name
+         FROM settlements s
+         JOIN group_participants gpf ON gpf.id = s.from_participant
+         LEFT JOIN users uf ON uf.id = gpf.user_id
+         JOIN group_participants gpt ON gpt.id = s.to_participant
+         LEFT JOIN users ut ON ut.id = gpt.user_id
+         WHERE s.group_id = $1 AND s.status = 'done'
+         ORDER BY s.settled_at DESC, s.id DESC`,
+        [groupId]
+      );
+
+      settledHistory = historyResult.rows.map((row) => ({
+        id: row.id,
+        fromName: row.from_name,
+        toName: row.to_name,
+        amount: Number(row.amount),
+        settledAt: row.settled_at,
+      }));
+
+      if (settledHistory.length > 0) {
+        latestSettledAt = settledHistory[0].settledAt;
+      }
+    } catch (histErr) {
+      console.warn('Failed to load settled history:', histErr.message);
+    }
+
     res.json({
       transactionCount: transactions.length,
       transactions,
+      settledHistory,
+      latestSettledAt,
       hasExpenses,
       isSettled,
     });

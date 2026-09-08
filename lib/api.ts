@@ -109,6 +109,7 @@ export type Group = {
   member_count: string
   expense_count: string
   created_by?: number
+  created_at?: string
   join_code?: string
   join_code_active?: boolean
 }
@@ -230,12 +231,28 @@ export const addExpense = (
 // ---- Balances & Settlements ----
 export type Balance = { participantId: number; userId: number | null; name: string; balance: number }
 export type SettlementTxn = { from: number; fromName: string; to: number; toName: string; amount: number }
+export type SettledHistoryTxn = {
+  id: number
+  fromName: string
+  toName: string
+  amount: number
+  settledAt: string
+}
+
+export type SettlementsResponse = {
+  transactionCount: number
+  transactions: SettlementTxn[]
+  settledHistory?: SettledHistoryTxn[]
+  latestSettledAt?: string | null
+  hasExpenses?: boolean
+  isSettled?: boolean
+}
 
 export const fetchBalances = (groupId: number) =>
   request<{ balances: Balance[] }>(`/groups/${groupId}/balances`)
 
 export const fetchSettlements = (groupId: number) =>
-  request<{ transactionCount: number; transactions: SettlementTxn[]; hasExpenses?: boolean; isSettled?: boolean }>(`/groups/${groupId}/settlements`)
+  request<SettlementsResponse>(`/groups/${groupId}/settlements`)
 
 export const confirmSettlement = (groupId: number, fromParticipantId: number, toParticipantId: number, amount: number) =>
   request(`/groups/${groupId}/settlements/confirm`, {
