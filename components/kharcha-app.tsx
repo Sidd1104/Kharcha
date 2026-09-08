@@ -1540,6 +1540,7 @@ function GroupView({
   const [paidKeys, setPaidKeys] = useState<string[]>([])
   const [keyCopied, setKeyCopied] = useState(false)
   const [regeneratingKey, setRegeneratingKey] = useState(false)
+  const [settlingAll, setSettlingAll] = useState(false)
 
   // Race-condition sequence guard for background refreshes
   const fetchSeqRef = useRef(0)
@@ -1710,8 +1711,6 @@ function GroupView({
   if (initialLoading || !group) {
     return <div className="mt-16 flex justify-center"><Loader2 className="size-6 animate-spin text-muted-foreground" /></div>
   }
-
-  const [settlingAll, setSettlingAll] = useState(false)
 
   async function handleMarkPaid(txn: SettlementTxn, key: string) {
     await confirmSettlement(groupId, txn.from, txn.to, txn.amount)
@@ -2360,6 +2359,9 @@ export function KharchaApp() {
       } else if (err) {
         setOauthError(decodeURIComponent(err))
         window.history.replaceState({}, document.title, window.location.pathname)
+        const stored = getStoredUser()
+        const storedToken = getToken()
+        if (stored && storedToken) setUser(stored)
       } else {
         const stored = getStoredUser()
         const storedToken = getToken()

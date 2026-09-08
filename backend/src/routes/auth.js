@@ -26,27 +26,41 @@ function generateState() {
 
 // Validates state signature and checks expiration
 function verifyState(state) {
-  if (!state || typeof state !== 'string') return false;
-  const parts = state.split(':');
-  if (parts.length !== 3) return false;
+  try {
+    if (!state || typeof state !== 'string') return false;
+    const parts = state.split(':');
+    if (parts.length !== 3) return false;
 
-  const [timestamp, random, hmac] = parts;
-  const secret = process.env.JWT_SECRET;
-  const payload = `${timestamp}:${random}`;
-  const expectedHmac = crypto.createHmac('sha256', secret).update(payload).digest('hex');
+    const [timestamp, random, hmac] = parts;
+    const secret = process.env.JWT_SECRET;
+    if (!secret) return false;
 
-  // Verify HMAC signature
-  if (!crypto.timingSafeEqual(Buffer.from(hmac), Buffer.from(expectedHmac))) {
+    const payload = `${timestamp}:${random}`;
+    const expectedHmac = crypto.createHmac('sha256', secret).update(payload).digest('hex');
+
+    const hmacBuf = Buffer.from(hmac);
+    const expectedBuf = Buffer.from(expectedHmac);
+
+    // Byte length check before timingSafeEqual to prevent RangeError
+    if (hmacBuf.length !== expectedBuf.length) {
+      return false;
+    }
+
+    if (!crypto.timingSafeEqual(hmacBuf, expectedBuf)) {
+      return false;
+    }
+
+    // Verify token is not expired (valid for 20 minutes, with 2-minute skew tolerance)
+    const age = Date.now() - Number(timestamp);
+    if (isNaN(age) || age < -2 * 60 * 1000 || age > 20 * 60 * 1000) {
+      return false;
+    }
+
+    return true;
+  } catch (err) {
+    console.error('Error verifying OAuth state:', err);
     return false;
   }
-
-  // Verify token is not expired (valid for 10 minutes)
-  const age = Date.now() - Number(timestamp);
-  if (isNaN(age) || age < 0 || age > 10 * 60 * 1000) {
-    return false;
-  }
-
-  return true;
 }
 
 // POST /auth/register
