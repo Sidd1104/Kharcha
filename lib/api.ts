@@ -235,12 +235,17 @@ export const fetchBalances = (groupId: number) =>
   request<{ balances: Balance[] }>(`/groups/${groupId}/balances`)
 
 export const fetchSettlements = (groupId: number) =>
-  request<{ transactionCount: number; transactions: SettlementTxn[] }>(`/groups/${groupId}/settlements`)
+  request<{ transactionCount: number; transactions: SettlementTxn[]; hasExpenses?: boolean; isSettled?: boolean }>(`/groups/${groupId}/settlements`)
 
 export const confirmSettlement = (groupId: number, fromParticipantId: number, toParticipantId: number, amount: number) =>
   request(`/groups/${groupId}/settlements/confirm`, {
     method: 'POST',
     body: JSON.stringify({ fromParticipantId, toParticipantId, amount }),
+  })
+
+export const settleAllTransactions = (groupId: number) =>
+  request<{ success: boolean; count: number }>(`/groups/${groupId}/settlements/settle-all`, {
+    method: 'POST',
   })
 
 // ---- Invites ----

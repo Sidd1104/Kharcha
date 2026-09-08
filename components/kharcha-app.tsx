@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef } from 'react'
 import Link from 'next/link'
 import {
-  AlertTriangle, ArrowLeft, ArrowRight, Bell, Car, Check, ChevronDown, Copy, GitMerge, Home, KeyRound, Loader2, Lock, LogOut, Mail, Plus,
+  AlertTriangle, ArrowLeft, ArrowRight, Bell, Car, Check, CheckCheck, CheckCircle2, ChevronDown, Copy, GitMerge, Home, KeyRound, Loader2, Lock, LogOut, Mail, Plus,
   Receipt, ShieldCheck, SlidersHorizontal, Sparkles, Trash2, User, UserCheck, UserMinus, UserPlus, Utensils, Wallet, X,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -19,7 +19,7 @@ import {
   confirmJoinGroup, confirmSettlement, createGroup, declineInvite, fetchBalances,
   fetchExpenses, fetchGroupDetail, fetchGroups, fetchNotifications, fetchSettlements,
   getGoogleAuthUrl, getStoredUser, getToken, joinGroup, loginUser, mergeParticipants, quickGoogleLogin,
-  regenerateGroupKey, registerUser, removeParticipants, sendInvite, setSession,
+  regenerateGroupKey, registerUser, removeParticipants, sendInvite, setSession, settleAllTransactions,
 } from '@/lib/api'
 
 const CATEGORY_ICONS: Record<string, any> = {
@@ -1352,11 +1352,12 @@ function NewGroupModal({ onClose, onCreated }: { onClose: () => void; onCreated:
 // Dashboard — real groups + real aggregate balance
 // ---------------------------------------------------------------------------
 function Dashboard({
-  user, groups, groupBalances, loading, onOpenGroup, onNewGroup, onJoinGroup,
+  user, groups, groupBalances, groupSettled = {}, loading, onOpenGroup, onNewGroup, onJoinGroup,
 }: {
   user: AuthUser
   groups: Group[]
   groupBalances: Record<number, number>
+  groupSettled?: Record<number, boolean>
   loading: boolean
   onOpenGroup: (id: number) => void
   onNewGroup: () => void
@@ -1453,6 +1454,7 @@ function Dashboard({
               const balance = groupBalances[group.id] ?? 0
               const isPositive = balance > 0
               const isNegative = balance < 0
+              const isSettled = !!groupSettled[group.id]
               const iconData = getGroupIconDetails(group)
               const GroupIcon = iconData.Icon
 
@@ -1460,11 +1462,21 @@ function Dashboard({
                 <button
                   key={group.id}
                   onClick={() => onOpenGroup(group.id)}
-                  className="group flex flex-col justify-between rounded-xl border border-border bg-card p-5 text-left transition-all hover:border-zinc-700"
+                  className={cn(
+                    'group flex flex-col justify-between rounded-xl border border-border bg-card p-5 text-left transition-all hover:border-zinc-700',
+                    isSettled && 'opacity-80 bg-card/60 border-emerald-900/30 shadow-inner hover:opacity-100 hover:border-emerald-700/50'
+                  )}
                 >
                   <div>
-                    <div className={cn('grid size-10 place-items-center rounded-lg', iconData.bg)}>
-                      <GroupIcon className="size-5" />
+                    <div className="flex items-center justify-between">
+                      <div className={cn('grid size-10 place-items-center rounded-lg', iconData.bg)}>
+                        <GroupIcon className="size-5" />
+                      </div>
+                      {isSettled && (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 border border-emerald-500/30 px-2.5 py-0.5 text-xs font-semibold text-emerald-400">
+                          <CheckCircle2 className="size-3" /> Settled
+                        </span>
+                      )}
                     </div>
                     <h3 className="mt-4 text-base font-bold text-foreground">{group.name}</h3>
                     <p className="mt-0.5 text-sm text-muted-foreground">
@@ -1472,14 +1484,25 @@ function Dashboard({
                     </p>
                   </div>
 
-                  <div className="mt-6 flex justify-end">
+                  <div className="mt-6 flex items-center justify-between">
+                    <span className="text-xs text-muted-foreground">
+                      {isSettled ? 'All debts cleared' : ''}
+                    </span>
                     <p
                       className={cn(
                         'text-base font-bold tracking-tight',
-                        isPositive ? 'text-emerald-400' : isNegative ? 'text-rose-400' : 'text-muted-foreground'
+                        isSettled
+                          ? 'text-emerald-400 font-semibold'
+                          : isPositive
+                          ? 'text-emerald-400'
+                          : isNegative
+                          ? 'text-rose-400'
+                          : 'text-muted-foreground'
                       )}
                     >
-                      {isPositive ? '+' : isNegative ? '-' : ''}₹{Math.abs(Math.round(balance)).toLocaleString('en-IN')}
+                      {isSettled
+                        ? '₹0 · Settled'
+                        : `${isPositive ? '+' : isNegative ? '-' : ''}₹${Math.abs(Math.round(balance)).toLocaleString('en-IN')}`}
                     </p>
                   </div>
                 </button>
@@ -1688,14 +1711,45 @@ function GroupView({
     return <div className="mt-16 flex justify-center"><Loader2 className="size-6 animate-spin text-muted-foreground" /></div>
   }
 
+  const [settlingAll, setSettlingAll] = useState(false)
+
   async function handleMarkPaid(txn: SettlementTxn, key: string) {
     await confirmSettlement(groupId, txn.from, txn.to, txn.amount)
     setPaidKeys((k) => [...k, key])
+    await refreshExpensesAndBalances()
+    await loadSettlements()
+  }
+
+  async function handleSettleAll() {
+    setSettlingAll(true)
+    try {
+      await settleAllTransactions(groupId)
+      setPaidKeys([])
+      await loadAll(false)
+      await loadSettlements()
+    } catch (err: any) {
+      console.error('Error settling all transactions via endpoint:', err)
+      // Fallback: confirm each one individually
+      try {
+        for (const txn of settlements) {
+          await confirmSettlement(groupId, txn.from, txn.to, txn.amount)
+        }
+        setPaidKeys([])
+        await loadAll(false)
+        await loadSettlements()
+      } catch (fallbackErr: any) {
+        alert(fallbackErr.message || 'Failed to settle all transactions')
+      }
+    } finally {
+      setSettlingAll(false)
+    }
   }
 
   const activeSettlementsCount = settlements.length - paidKeys.length
   const activeParticipants = participants.filter((p) => p.status !== 'invited')
   const isCreator = group.created_by === currentUser.id
+  const totalExpensesAmount = expenses.reduce((sum, e) => sum + Number(e.amount), 0)
+  const isGroupSettled = expenses.length > 0 && balances.length > 0 && balances.every((b) => Math.abs(b.balance) < 0.01)
 
   return (
     <>
@@ -1717,6 +1771,12 @@ function GroupView({
                 <PeopleStack members={activeParticipants} size="size-6" />
                 <span className="text-sm text-muted-foreground">{activeParticipants.length} members</span>
               </button>
+
+              {isGroupSettled && (
+                <span className="inline-flex items-center gap-1 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 text-xs font-semibold text-emerald-400">
+                  <CheckCircle2 className="size-3" /> All Settled
+                </span>
+              )}
 
               {/* Join key badge & regenerate key (visible strictly to group host/creator) */}
               {isCreator && group.join_code && (
@@ -1769,84 +1829,179 @@ function GroupView({
             </Button>
           )}
           <Button variant="outline" onClick={() => setExpenseOpen(true)}><Plus className="mr-1 size-4" /> Expense</Button>
-          <Button onClick={() => setTab('settle')} className="bg-primary text-primary-foreground hover:bg-primary/90">
-            <Receipt className="mr-1 size-4" /> Settle up
+          <Button
+            onClick={() => setTab('settle')}
+            variant={isGroupSettled ? 'outline' : 'default'}
+            className={cn(
+              isGroupSettled
+                ? 'border-emerald-800/40 text-emerald-400 bg-emerald-950/20 hover:bg-emerald-950/40'
+                : 'bg-primary text-primary-foreground hover:bg-primary/90'
+            )}
+          >
+            {isGroupSettled ? <CheckCircle2 className="mr-1 size-4" /> : <Receipt className="mr-1 size-4" />}
+            {isGroupSettled ? 'Settled' : 'Settle up'}
           </Button>
         </div>
       </div>
 
       {tab === 'settle' ? (
         <section className="mt-8">
-          <div className="rounded-xl bg-[#e2f3df] p-5 shadow-sm">
-            <p className="text-base sm:text-lg font-bold text-[#1b5e20]">
-              {activeSettlementsCount} {activeSettlementsCount === 1 ? 'transaction' : 'transactions'} will settle this group
-            </p>
-            <p className="mt-1 text-sm font-medium text-[#2e7d32]">
-              Once everyone pays, all balances are squared up.
-            </p>
-          </div>
+          {activeSettlementsCount > 0 ? (
+            <>
+              <div className="rounded-xl bg-[#e2f3df] p-5 shadow-sm">
+                <p className="text-base sm:text-lg font-bold text-[#1b5e20]">
+                  {activeSettlementsCount} {activeSettlementsCount === 1 ? 'transaction' : 'transactions'} will settle this group
+                </p>
+                <p className="mt-1 text-sm font-medium text-[#2e7d32]">
+                  Once everyone pays, all balances are squared up.
+                </p>
+              </div>
 
-          <div className="mt-4 flex flex-col gap-3">
-            {settlements.map((txn, i) => {
-              const key = `${txn.from}-${txn.to}-${i}`
-              const isPaid = paidKeys.includes(key)
-              return (
-                <div
-                  key={key}
-                  className={cn(
-                    'flex items-center justify-between rounded-xl border border-border bg-card p-4 sm:p-5 transition-opacity',
-                    isPaid && 'opacity-50'
-                  )}
-                >
-                  <div className="flex items-center gap-3.5">
-                    <div className="grid size-10 place-items-center rounded-full bg-zinc-800 text-xs font-bold text-zinc-200">
-                      {initialsOf(txn.fromName || 'User')}
-                    </div>
-                    <p className="text-sm sm:text-base font-semibold text-foreground">
-                      {txn.fromName} pays {txn.toName}
-                    </p>
-                  </div>
-
-                  <div className="flex items-center gap-4">
-                    <p className="text-base sm:text-lg font-bold text-foreground">
-                      ₹{Math.round(txn.amount).toLocaleString('en-IN')}
-                    </p>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      disabled={isPaid}
-                      onClick={() => handleMarkPaid(txn, key)}
+              <div className="mt-4 flex flex-col gap-3">
+                {settlements.map((txn, i) => {
+                  const key = `${txn.from}-${txn.to}-${i}`
+                  const isPaid = paidKeys.includes(key)
+                  return (
+                    <div
+                      key={key}
                       className={cn(
-                        'rounded-lg border-zinc-700 bg-transparent px-3.5 py-1.5 text-xs sm:text-sm font-medium text-zinc-200 hover:bg-zinc-800 hover:text-white',
-                        isPaid && 'border-emerald-800 text-emerald-400 bg-emerald-950/20'
+                        'flex items-center justify-between rounded-xl border border-border bg-card p-4 sm:p-5 transition-opacity',
+                        isPaid && 'opacity-50'
                       )}
                     >
-                      {isPaid ? (
-                        <>
-                          <Check className="mr-1 size-3.5" /> Paid
-                        </>
-                      ) : (
-                        'Mark as paid'
-                      )}
-                    </Button>
-                  </div>
-                </div>
-              )
-            })}
+                      <div className="flex items-center gap-3.5">
+                        <div className="grid size-10 place-items-center rounded-full bg-zinc-800 text-xs font-bold text-zinc-200">
+                          {initialsOf(txn.fromName || 'User')}
+                        </div>
+                        <p className="text-sm sm:text-base font-semibold text-foreground">
+                          {txn.fromName} pays {txn.toName}
+                        </p>
+                      </div>
 
-            {settlements.length === 0 && (
-              <div className="rounded-xl border border-border bg-card p-8 text-center text-muted-foreground">
-                Everyone is already settled up. 🎉
+                      <div className="flex items-center gap-4">
+                        <p className="text-base sm:text-lg font-bold text-foreground">
+                          ₹{Math.round(txn.amount).toLocaleString('en-IN')}
+                        </p>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={isPaid}
+                          onClick={() => handleMarkPaid(txn, key)}
+                          className={cn(
+                            'rounded-lg border-zinc-700 bg-transparent px-3.5 py-1.5 text-xs sm:text-sm font-medium text-zinc-200 hover:bg-zinc-800 hover:text-white',
+                            isPaid && 'border-emerald-800 text-emerald-400 bg-emerald-950/20'
+                          )}
+                        >
+                          {isPaid ? (
+                            <>
+                              <Check className="mr-1 size-3.5" /> Paid
+                            </>
+                          ) : (
+                            'Mark as paid'
+                          )}
+                        </Button>
+                      </div>
+                    </div>
+                  )
+                })}
               </div>
-            )}
-          </div>
 
-          <button
-            onClick={() => setTab('expenses')}
-            className="mt-6 text-sm font-medium text-primary hover:underline"
-          >
-            Back to expenses
-          </button>
+              {/* Bottom action row: Back to expenses on left, Settle all on right */}
+              <div className="mt-6 flex flex-col sm:flex-row items-center justify-between gap-4 pt-2">
+                <button
+                  onClick={() => setTab('expenses')}
+                  className="text-sm font-medium text-primary hover:underline self-start sm:self-center"
+                >
+                  ← Back to expenses
+                </button>
+                <Button
+                  onClick={handleSettleAll}
+                  disabled={settlingAll}
+                  className="h-11 px-5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-semibold shadow-lg shadow-emerald-950/30 transition-all hover:scale-[1.02] active:scale-[0.98] w-full sm:w-auto ml-auto"
+                >
+                  {settlingAll ? (
+                    <>
+                      <Loader2 className="mr-2 size-4 animate-spin" /> Settling all transactions...
+                    </>
+                  ) : (
+                    <>
+                      <CheckCheck className="mr-2 size-4" /> Settle all ({activeSettlementsCount})
+                    </>
+                  )}
+                </Button>
+              </div>
+
+              {/* Floating bottom-right button for fast access */}
+              <div className="fixed bottom-6 right-6 z-30">
+                <Button
+                  onClick={handleSettleAll}
+                  disabled={settlingAll}
+                  className="h-12 px-6 rounded-full bg-emerald-600 hover:bg-emerald-500 text-white font-semibold shadow-2xl shadow-emerald-500/40 border border-emerald-400/40 transition-all hover:scale-105 active:scale-95 flex items-center gap-2"
+                >
+                  {settlingAll ? (
+                    <>
+                      <Loader2 className="size-4 animate-spin" /> Settling...
+                    </>
+                  ) : (
+                    <>
+                      <CheckCheck className="size-5" /> Settle All ({activeSettlementsCount})
+                    </>
+                  )}
+                </Button>
+              </div>
+            </>
+          ) : expenses.length > 0 ? (
+            /* Prominent celebratory card in the middle */
+            <div className="my-8 mx-auto max-w-lg rounded-2xl border border-emerald-500/30 bg-gradient-to-b from-emerald-950/30 to-card p-8 sm:p-10 text-center shadow-xl shadow-emerald-950/20 backdrop-blur-sm animate-in fade-in zoom-in-95 duration-300">
+              <div className="relative mx-auto grid size-20 place-items-center rounded-full bg-emerald-500/15 border-2 border-emerald-500/40 text-emerald-400 shadow-lg shadow-emerald-500/20">
+                <CheckCircle2 className="size-10 text-emerald-400" />
+                <div className="absolute inset-0 rounded-full bg-emerald-400/10 animate-ping" style={{ animationDuration: '3s' }} />
+              </div>
+
+              <div className="mt-6">
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 px-3 py-1 text-xs font-bold tracking-wider text-emerald-400 border border-emerald-500/30 uppercase">
+                  <Sparkles className="size-3.5" /> All Bills Settled
+                </span>
+                <h2 className="mt-3 text-2xl sm:text-3xl font-extrabold tracking-tight text-foreground">
+                  This Group is Squared Up!
+                </h2>
+                <p className="mt-2 text-sm sm:text-base text-muted-foreground max-w-sm mx-auto">
+                  All member expenses and settlements have been marked as paid. Every balance is clear at ₹0.
+                </p>
+              </div>
+
+              <div className="mt-6 grid grid-cols-2 gap-3 rounded-xl border border-border/60 bg-muted/30 p-4 text-left">
+                <div>
+                  <p className="text-xs text-muted-foreground">Total Expenses</p>
+                  <p className="text-lg font-bold text-foreground">₹{Math.round(totalExpensesAmount).toLocaleString('en-IN')}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Outstanding Debt</p>
+                  <p className="text-lg font-bold text-emerald-400">₹0 (Zero)</p>
+                </div>
+              </div>
+
+              <div className="mt-8 flex flex-col sm:flex-row items-center justify-center gap-3">
+                <Button
+                  onClick={() => setTab('expenses')}
+                  className="w-full sm:w-auto h-11 px-6 rounded-xl bg-primary text-primary-foreground font-semibold hover:bg-primary/90"
+                >
+                  View Expense History
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={onBack}
+                  className="w-full sm:w-auto h-11 px-6 rounded-xl border-border hover:bg-accent"
+                >
+                  <ArrowLeft className="mr-2 size-4" /> All Groups
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="rounded-xl border border-border bg-card p-8 text-center text-muted-foreground">
+              No expenses recorded in this group yet. Add an expense to start splitting!
+            </div>
+          )}
         </section>
       ) : (
         <>
@@ -1863,7 +2018,22 @@ function GroupView({
           </div>
 
           {tab === 'expenses' ? (
-            <div className="mt-4 overflow-hidden rounded-xl border border-border bg-card">
+            <div className="mt-4">
+              {isGroupSettled && (
+                <div className="mb-4 flex items-center justify-between rounded-xl border border-emerald-500/20 bg-emerald-950/20 px-4 py-3 text-sm text-emerald-300">
+                  <div className="flex items-center gap-2">
+                    <CheckCircle2 className="size-4 text-emerald-400" />
+                    <span className="font-medium">All expenses in this group have been fully settled.</span>
+                  </div>
+                  <button
+                    onClick={() => setTab('settle')}
+                    className="text-xs font-semibold text-emerald-400 hover:underline"
+                  >
+                    View settlement details →
+                  </button>
+                </div>
+              )}
+              <div className="overflow-hidden rounded-xl border border-border bg-card">
               {expenses.length === 0 && <p className="p-6 text-sm text-muted-foreground">No expenses yet — add the first one.</p>}
               {expenses.map((expense) => {
                 const Icon = CATEGORY_ICONS[expense.category] || Receipt
@@ -1894,6 +2064,7 @@ function GroupView({
                 )
               })}
             </div>
+          </div>
           ) : tab === 'balances' ? (
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
               {balances.map((b) => {
@@ -2162,6 +2333,7 @@ export function KharchaApp() {
   const [checkingSession, setCheckingSession] = useState(true)
   const [groups, setGroups] = useState<Group[]>([])
   const [groupBalances, setGroupBalances] = useState<Record<number, number>>({})
+  const [groupSettled, setGroupSettled] = useState<Record<number, boolean>>({})
   const [groupsLoading, setGroupsLoading] = useState(true)
   const [activeGroupId, setActiveGroupId] = useState<number | null>(null)
   const [newGroupOpen, setNewGroupOpen] = useState(false)
@@ -2202,15 +2374,22 @@ export function KharchaApp() {
     try {
       const { groups: list } = await fetchGroups()
       setGroups(list)
-      const balancePairs = await Promise.all(
+      const results = await Promise.all(
         list.map(async (g) => {
-          const { balances } = await fetchBalances(g.id)
-          // Find balance for current user by matching userId on participants
-          const mine = balances.find((b) => b.userId === currentUser.id)
-          return [g.id, mine?.balance ?? 0] as const
+          try {
+            const { balances } = await fetchBalances(g.id)
+            // Find balance for current user by matching userId on participants
+            const mine = balances.find((b) => b.userId === currentUser.id)
+            const allZero = balances.length > 0 && balances.every((b) => Math.abs(b.balance) < 0.01)
+            const isSettled = (g.expense_count ?? 0) > 0 && allZero
+            return { id: g.id, balance: mine?.balance ?? 0, isSettled }
+          } catch {
+            return { id: g.id, balance: 0, isSettled: false }
+          }
         })
       )
-      setGroupBalances(Object.fromEntries(balancePairs))
+      setGroupBalances(Object.fromEntries(results.map((r) => [r.id, r.balance])))
+      setGroupSettled(Object.fromEntries(results.map((r) => [r.id, r.isSettled])))
     } finally {
       setGroupsLoading(false)
     }
@@ -2261,6 +2440,7 @@ export function KharchaApp() {
             user={user}
             groups={groups}
             groupBalances={groupBalances}
+            groupSettled={groupSettled}
             loading={groupsLoading}
             onOpenGroup={setActiveGroupId}
             onNewGroup={() => setNewGroupOpen(true)}

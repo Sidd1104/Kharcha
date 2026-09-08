@@ -67,6 +67,23 @@ async function getEffectiveSplitsAndBalances(groupId) {
   }
 
   const balancesMap = computeBalances(expensesResult.rows, effectiveSplits);
+
+  // 3. Apply confirmed settlements: payer's balance increases (+amount), recipient's balance decreases (-amount)
+  const settlementsResult = await pool.query(
+    `SELECT from_participant, to_participant, amount
+     FROM settlements
+     WHERE group_id = $1 AND status = 'done'`,
+    [groupId]
+  );
+
+  for (const s of settlementsResult.rows) {
+    const amt = Number(s.amount);
+    const fromId = s.from_participant;
+    const toId = s.to_participant;
+    balancesMap.set(fromId, Math.round(((balancesMap.get(fromId) || 0) + amt) * 100) / 100);
+    balancesMap.set(toId, Math.round(((balancesMap.get(toId) || 0) - amt) * 100) / 100);
+  }
+
   return { expenses: expensesResult.rows, participants: currentParticipants, balancesMap };
 }
 
@@ -94,7 +111,7 @@ router.get('/:groupId/balances', requireGroupMember, async (req, res) => {
 router.get('/:groupId/settlements', requireGroupMember, async (req, res) => {
   const { groupId } = req.params;
   try {
-    const { participants, balancesMap } = await getEffectiveSplitsAndBalances(groupId);
+    const { expenses, participants, balancesMap } = await getEffectiveSplitsAndBalances(groupId);
     const nameById = new Map(participants.map((p) => [p.participant_id, p.name]));
 
     const balances = Array.from(balancesMap.entries()).map(([participantId, balance]) => ({ participantId, balance }));
@@ -107,7 +124,15 @@ router.get('/:groupId/settlements', requireGroupMember, async (req, res) => {
       amount: t.amount,
     }));
 
-    res.json({ transactionCount: transactions.length, transactions });
+    const hasExpenses = expenses.length > 0;
+    const isSettled = hasExpenses && transactions.length === 0;
+
+    res.json({
+      transactionCount: transactions.length,
+      transactions,
+      hasExpenses,
+      isSettled,
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to compute settlements' });
@@ -143,6 +168,52 @@ router.post('/:groupId/settlements/confirm', requireGroupMember, async (req, res
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to confirm settlement' });
+  }
+});
+
+// POST /groups/:groupId/settlements/settle-all — settle all remaining transactions in one atomic step
+router.post('/:groupId/settlements/settle-all', requireGroupMember, async (req, res) => {
+  const { groupId } = req.params;
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { participants, balancesMap } = await getEffectiveSplitsAndBalances(groupId);
+    const balances = Array.from(balancesMap.entries()).map(([participantId, balance]) => ({ participantId, balance }));
+    const transactions = computeSettlements(balances);
+
+    if (transactions.length === 0) {
+      await client.query('COMMIT');
+      return res.json({ success: true, count: 0, message: 'All transactions are already settled' });
+    }
+
+    const settledRows = [];
+    for (const t of transactions) {
+      const result = await client.query(
+        `INSERT INTO settlements (group_id, from_participant, to_participant, amount, status, settled_at)
+         VALUES ($1, $2, $3, $4, 'done', now()) RETURNING *`,
+        [groupId, t.from, t.to, t.amount]
+      );
+      settledRows.push(result.rows[0]);
+    }
+
+    await client.query('COMMIT');
+
+    const io = req.app.get('io');
+    if (io) {
+      io.to(`group:${groupId}`).emit('settlement-confirmed', {
+        groupId: Number(groupId),
+        allSettled: true,
+        settledCount: settledRows.length,
+      });
+    }
+
+    res.status(201).json({ success: true, count: settledRows.length, settlements: settledRows });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error(err);
+    res.status(500).json({ error: 'Failed to settle all transactions' });
+  } finally {
+    client.release();
   }
 });
 
