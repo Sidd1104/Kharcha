@@ -2241,7 +2241,7 @@ export function KharchaApp() {
   }
 
   return (
-    <main className="min-h-screen bg-background">
+    <main className="flex min-h-screen flex-col bg-background">
       <header className="sticky top-0 z-20 border-b border-border bg-background/90 backdrop-blur">
         <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-5 lg:px-8">
           <button onClick={() => setActiveGroupId(null)} className="flex items-center gap-2.5">
@@ -2255,7 +2255,7 @@ export function KharchaApp() {
         </div>
       </header>
 
-      <div className="mx-auto max-w-7xl px-5 py-8 lg:px-8 lg:py-10">
+      <div className="mx-auto w-full max-w-7xl flex-1 px-5 py-8 lg:px-8 lg:py-10">
         {activeGroupId === null ? (
           <Dashboard
             user={user}
@@ -2285,18 +2285,18 @@ export function KharchaApp() {
         />
       )}
 
-      <footer className="mt-auto border-t border-border py-6 text-xs text-muted-foreground">
-        <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4 px-5 lg:px-8">
+      <footer className="border-t border-border bg-background/90 text-xs text-muted-foreground backdrop-blur">
+        <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-5 lg:px-8">
           <div className="flex items-center gap-2">
-            <div className="grid size-5 place-items-center rounded bg-primary text-primary-foreground">
-              <Wallet className="size-3" />
+            <div className="grid size-6 place-items-center rounded-md bg-primary text-primary-foreground">
+              <Wallet className="size-3.5" />
             </div>
-            <span className="font-semibold text-foreground">kharcha<span className="text-emerald-500">.</span></span>
-            <span className="text-muted-foreground/60">&mdash; Split expenses. Settle instantly.</span>
+            <span className="font-bold tracking-tight text-foreground">kharcha<span className="text-emerald-500">.</span></span>
+            <span className="hidden sm:inline text-muted-foreground/60 ml-1">&mdash; Split expenses. Settle instantly.</span>
           </div>
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-4 font-medium">
             <Link href="/privacy" className="hover:text-foreground transition-colors">Privacy Policy</Link>
-            <span>&bull;</span>
+            <span className="text-border">&bull;</span>
             <Link href="/terms" className="hover:text-foreground transition-colors">Terms of Service</Link>
           </div>
         </div>
