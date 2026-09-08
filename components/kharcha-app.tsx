@@ -1823,6 +1823,7 @@ function GroupView({
   const [keyCopied, setKeyCopied] = useState(false)
   const [regeneratingKey, setRegeneratingKey] = useState(false)
   const [settlingAll, setSettlingAll] = useState(false)
+  const [settlementsLoading, setSettlementsLoading] = useState(false)
 
   // Race-condition sequence guard for background refreshes
   const fetchSeqRef = useRef(0)
@@ -1832,10 +1833,11 @@ function GroupView({
     setLoadError(null)
     const seq = ++fetchSeqRef.current
     try {
-      const [detail, exp, bal] = await Promise.all([
+      const [detail, exp, bal, s] = await Promise.all([
         fetchGroupDetail(groupId),
         fetchExpenses(groupId),
         fetchBalances(groupId),
+        fetchSettlements(groupId).catch(() => ({ transactions: [] })),
       ])
       // Ignore if a newer fetch was started
       if (seq !== fetchSeqRef.current) return
@@ -1844,6 +1846,7 @@ function GroupView({
       setParticipants(detail.participants)
       setExpenses(exp.expenses)
       setBalances(bal.balances)
+      if (s?.transactions) setSettlements(s.transactions)
     } catch (err: any) {
       if (seq !== fetchSeqRef.current) return
       setLoadError(err.message || 'Failed to load group details')
@@ -1855,21 +1858,30 @@ function GroupView({
   async function refreshExpensesAndBalances() {
     const seq = ++fetchSeqRef.current
     try {
-      const [exp, bal] = await Promise.all([
+      const [exp, bal, s] = await Promise.all([
         fetchExpenses(groupId),
         fetchBalances(groupId),
+        fetchSettlements(groupId).catch(() => ({ transactions: [] })),
       ])
       if (seq !== fetchSeqRef.current) return
       setExpenses(exp.expenses)
       setBalances(bal.balances)
+      if (s?.transactions) setSettlements(s.transactions)
     } catch (err) {
       console.error('Error updating expenses/balances:', err)
     }
   }
 
   async function loadSettlements() {
-    const s = await fetchSettlements(groupId)
-    setSettlements(s.transactions)
+    setSettlementsLoading(true)
+    try {
+      const s = await fetchSettlements(groupId)
+      setSettlements(s.transactions)
+    } catch (err) {
+      console.error('Error loading settlements:', err)
+    } finally {
+      setSettlementsLoading(false)
+    }
   }
 
   // Initial group data load on mount or groupId change
@@ -2097,37 +2109,77 @@ function GroupView({
             </div>
           </div>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <Button variant="outline" onClick={() => setAddPersonOpen(true)}>
-            <UserPlus className="mr-1 size-4" /> Add member
+        <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 sm:justify-end">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setAddPersonOpen(true)}
+            className="h-8 px-2.5 sm:px-3 text-xs font-medium"
+          >
+            <UserPlus className="mr-1.5 size-3.5" /> Add member
           </Button>
-          <Button variant="outline" onClick={() => setRemoveMembersOpen(true)}>
-            <UserMinus className="mr-1 size-4" /> Remove member
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setRemoveMembersOpen(true)}
+            className="h-8 px-2.5 sm:px-3 text-xs font-medium"
+          >
+            <UserMinus className="mr-1.5 size-3.5" /> Remove member
           </Button>
           {isCreator && participants.some((p) => p.user_id === null && p.status === 'guest') && (
-            <Button variant="outline" onClick={() => setMergeModalOpen(true)}>
-              <GitMerge className="mr-1 size-4" /> Merge guest
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setMergeModalOpen(true)}
+              className="h-8 px-2.5 sm:px-3 text-xs font-medium"
+            >
+              <GitMerge className="mr-1.5 size-3.5" /> Merge guest
             </Button>
           )}
-          <Button variant="outline" onClick={() => setExpenseOpen(true)}><Plus className="mr-1 size-4" /> Expense</Button>
           <Button
-            onClick={() => setTab('settle')}
-            variant={isGroupSettled ? 'outline' : 'default'}
+            variant="outline"
+            size="sm"
+            onClick={() => setExpenseOpen(true)}
+            className="h-8 px-2.5 sm:px-3 text-xs font-medium"
+          >
+            <Plus className="mr-1.5 size-3.5" /> Expense
+          </Button>
+          <Button
+            size="sm"
+            onClick={() => setTab(tab === 'settle' ? 'expenses' : 'settle')}
+            variant={tab === 'settle' ? 'default' : isGroupSettled ? 'outline' : 'default'}
             className={cn(
-              isGroupSettled
+              'h-8 px-2.5 sm:px-3 text-xs font-medium',
+              tab === 'settle'
+                ? 'bg-primary text-primary-foreground'
+                : isGroupSettled
                 ? 'border-emerald-800/40 text-emerald-400 bg-emerald-950/20 hover:bg-emerald-950/40'
                 : 'bg-primary text-primary-foreground hover:bg-primary/90'
             )}
           >
-            {isGroupSettled ? <CheckCircle2 className="mr-1 size-4" /> : <Receipt className="mr-1 size-4" />}
-            {isGroupSettled ? 'Settled' : 'Settle up'}
+            {isGroupSettled ? <CheckCircle2 className="mr-1.5 size-3.5" /> : <Receipt className="mr-1.5 size-3.5" />}
+            Settle up
           </Button>
         </div>
       </div>
 
       {tab === 'settle' ? (
         <section className="mt-8">
-          {activeSettlementsCount > 0 ? (
+          <div className="mb-4">
+            <button
+              onClick={() => setTab('expenses')}
+              className="inline-flex items-center gap-1.5 text-xs font-semibold text-primary hover:underline"
+            >
+              <ArrowLeft className="size-3.5" /> Back to expenses
+            </button>
+          </div>
+
+          {settlementsLoading ? (
+            <div className="flex flex-col items-center justify-center py-16">
+              <Loader2 className="size-8 animate-spin text-primary" />
+              <p className="mt-3 text-sm text-muted-foreground">Loading settlement transactions...</p>
+            </div>
+          ) : activeSettlementsCount > 0 ? (
             <>
               <div className="rounded-xl bg-[#e2f3df] p-5 shadow-sm">
                 <p className="text-base sm:text-lg font-bold text-[#1b5e20]">
@@ -2187,7 +2239,7 @@ function GroupView({
                 })}
               </div>
 
-              {/* Bottom action row: Back to expenses on left, Settle all on right */}
+              {/* Bottom action row: Back to expenses on left, Settle all debts & close on right */}
               <div className="mt-6 flex flex-col sm:flex-row items-center justify-between gap-4 pt-2">
                 <button
                   onClick={() => setTab('expenses')}
@@ -2202,11 +2254,11 @@ function GroupView({
                 >
                   {settlingAll ? (
                     <>
-                      <Loader2 className="mr-2 size-4 animate-spin" /> Settling all transactions...
+                      <Loader2 className="mr-2 size-4 animate-spin" /> Settling all debts & closing group...
                     </>
                   ) : (
                     <>
-                      <CheckCheck className="mr-2 size-4" /> Settle all ({activeSettlementsCount})
+                      <CheckCheck className="mr-2 size-4" /> Settle all debts & close ({activeSettlementsCount})
                     </>
                   )}
                 </Button>
