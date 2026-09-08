@@ -27,7 +27,7 @@ const joinLimiter = rateLimit({
 router.get('/', async (req, res) => {
   try {
     const { rows } = await pool.query(
-      `SELECT g.id, g.name, g.icon, g.created_at,
+      `SELECT g.id, g.name, g.icon, g.created_at, g.created_by,
               (SELECT COUNT(*) FROM group_participants gp2 WHERE gp2.group_id = g.id AND gp2.status IN ('active', 'guest')) AS member_count,
               (SELECT COUNT(*) FROM expenses e WHERE e.group_id = g.id) AS expense_count
        FROM groups g
@@ -571,6 +571,11 @@ router.get('/:id', requireGroupMember, async (req, res) => {
     const groupResult = await pool.query('SELECT * FROM groups WHERE id = $1', [id]);
     const group = groupResult.rows[0];
     if (!group) return res.status(404).json({ error: 'Group not found' });
+
+    // Host-only join PIN: only group creator can see the join_code
+    if (group.created_by !== req.user.id) {
+      delete group.join_code;
+    }
 
     const participantsResult = await pool.query(
       `SELECT gp.id AS participant_id,

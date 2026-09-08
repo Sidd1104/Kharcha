@@ -515,11 +515,13 @@ function NewExpense({
 function AddPersonModal({
   groupId,
   joinCode,
+  isCreator = false,
   onClose,
   onAdded,
 }: {
   groupId: number
   joinCode?: string
+  isCreator?: boolean
   onClose: () => void
   onAdded: () => void
 }) {
@@ -565,21 +567,23 @@ function AddPersonModal({
           </button>
         </div>
 
-        {/* Mode toggle */}
-        <div className="mt-4 flex items-center justify-between rounded-xl bg-muted p-1">
-          <button
-            onClick={() => { setMode('guest'); setError(null); setSuccess(null) }}
-            className={cn('flex-1 rounded-lg py-2 text-sm font-medium transition-all', mode === 'guest' && 'bg-card shadow-sm')}
-          >
-            <User className="mr-1.5 inline size-3.5" /> By name
-          </button>
-          <button
-            onClick={() => { setMode('code'); setError(null); setSuccess(null) }}
-            className={cn('flex-1 rounded-lg py-2 text-sm font-medium transition-all', mode === 'code' && 'bg-card shadow-sm')}
-          >
-            <KeyRound className="mr-1.5 inline size-3.5" /> Share join code
-          </button>
-        </div>
+        {/* Mode toggle — visible only to group host/creator */}
+        {isCreator && joinCode && (
+          <div className="mt-4 flex items-center justify-between rounded-xl bg-muted p-1">
+            <button
+              onClick={() => { setMode('guest'); setError(null); setSuccess(null) }}
+              className={cn('flex-1 rounded-lg py-2 text-sm font-medium transition-all', mode === 'guest' && 'bg-card shadow-sm')}
+            >
+              <User className="mr-1.5 inline size-3.5" /> By name
+            </button>
+            <button
+              onClick={() => { setMode('code'); setError(null); setSuccess(null) }}
+              className={cn('flex-1 rounded-lg py-2 text-sm font-medium transition-all', mode === 'code' && 'bg-card shadow-sm')}
+            >
+              <KeyRound className="mr-1.5 inline size-3.5" /> Share join code
+            </button>
+          </div>
+        )}
 
         <div className="mt-4 flex flex-col gap-3">
           {mode === 'guest' ? (
@@ -1000,12 +1004,14 @@ function JoinGroupModal({
               </div>
 
               <Button
-                variant="ghost"
-                className="h-10 text-xs font-medium text-muted-foreground hover:text-foreground"
+                type="button"
+                variant="outline"
+                className="h-12 w-full items-center justify-center gap-2 rounded-xl border border-border bg-card/80 px-4 text-sm font-medium text-foreground hover:bg-muted/80 hover:border-primary/40 transition-all shadow-xs"
                 onClick={() => handleConfirmLink(null)}
                 disabled={loading}
               >
-                No, add me as a new member
+                <UserPlus className="size-4 text-muted-foreground" />
+                <span>No, add me as a new member</span>
               </Button>
 
               {error && (
@@ -1700,39 +1706,40 @@ function GroupView({
                 <span className="text-sm text-muted-foreground">{activeParticipants.length} members</span>
               </button>
 
-              {/* Join key badge with 1-click copy */}
-              <div className="ml-1 inline-flex items-center gap-1.5 rounded-lg border border-border bg-muted/60 px-2.5 py-1 text-xs">
-                <KeyRound className="size-3 text-muted-foreground" />
-                <span className="text-muted-foreground">Key:</span>
-                <span className="font-mono font-bold tracking-wider text-foreground">
-                  {group.join_code || '------'}
-                </span>
-                <button
-                  onClick={() => {
-                    if (group.join_code) {
-                      navigator.clipboard.writeText(group.join_code)
-                      setKeyCopied(true)
-                      setTimeout(() => setKeyCopied(false), 2000)
-                    }
-                  }}
-                  title="Copy join key"
-                  className="ml-0.5 rounded p-0.5 text-muted-foreground hover:text-foreground transition-colors"
-                >
-                  {keyCopied ? <Check className="size-3 text-emerald-400" /> : <Copy className="size-3" />}
-                </button>
-              </div>
+              {/* Join key badge & regenerate key (visible strictly to group host/creator) */}
+              {isCreator && group.join_code && (
+                <>
+                  <div className="ml-1 inline-flex items-center gap-1.5 rounded-lg border border-border bg-muted/60 px-2.5 py-1 text-xs">
+                    <KeyRound className="size-3 text-muted-foreground" />
+                    <span className="text-muted-foreground">Key:</span>
+                    <span className="font-mono font-bold tracking-wider text-foreground">
+                      {group.join_code}
+                    </span>
+                    <button
+                      onClick={() => {
+                        if (group.join_code) {
+                          navigator.clipboard.writeText(group.join_code)
+                          setKeyCopied(true)
+                          setTimeout(() => setKeyCopied(false), 2000)
+                        }
+                      }}
+                      title="Copy join key"
+                      className="ml-0.5 rounded p-0.5 text-muted-foreground hover:text-foreground transition-colors"
+                    >
+                      {keyCopied ? <Check className="size-3 text-emerald-400" /> : <Copy className="size-3" />}
+                    </button>
+                  </div>
 
-              {/* Regenerate key (visible only to group creator) */}
-              {isCreator && (
-                <button
-                  onClick={handleRegenerateKey}
-                  disabled={regeneratingKey}
-                  title="Regenerate join key (invalidates previous key)"
-                  className="text-xs text-muted-foreground hover:text-primary transition-colors flex items-center gap-1"
-                >
-                  {regeneratingKey ? <Loader2 className="size-3 animate-spin" /> : <Sparkles className="size-3" />}
-                  Regenerate
-                </button>
+                  <button
+                    onClick={handleRegenerateKey}
+                    disabled={regeneratingKey}
+                    title="Regenerate join key (invalidates previous key)"
+                    className="text-xs text-muted-foreground hover:text-primary transition-colors flex items-center gap-1"
+                  >
+                    {regeneratingKey ? <Loader2 className="size-3 animate-spin" /> : <Sparkles className="size-3" />}
+                    Regenerate
+                  </button>
+                </>
               )}
             </div>
           </div>
@@ -1979,7 +1986,8 @@ function GroupView({
       {addPersonOpen && (
         <AddPersonModal
           groupId={groupId}
-          joinCode={group?.join_code}
+          joinCode={isCreator ? group?.join_code : undefined}
+          isCreator={isCreator}
           onClose={() => setAddPersonOpen(false)}
           onAdded={loadAll}
         />
