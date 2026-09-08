@@ -2211,25 +2211,6 @@ function GroupView({
                   )}
                 </Button>
               </div>
-
-              {/* Floating bottom-right button for fast access */}
-              <div className="fixed bottom-6 right-6 z-30">
-                <Button
-                  onClick={handleSettleAll}
-                  disabled={settlingAll}
-                  className="h-12 px-6 rounded-full bg-emerald-600 hover:bg-emerald-500 text-white font-semibold shadow-2xl shadow-emerald-500/40 border border-emerald-400/40 transition-all hover:scale-105 active:scale-95 flex items-center gap-2"
-                >
-                  {settlingAll ? (
-                    <>
-                      <Loader2 className="size-4 animate-spin" /> Settling...
-                    </>
-                  ) : (
-                    <>
-                      <CheckCheck className="size-5" /> Settle All ({activeSettlementsCount})
-                    </>
-                  )}
-                </Button>
-              </div>
             </>
           ) : expenses.length > 0 ? (
             /* Prominent celebratory card in the middle */
