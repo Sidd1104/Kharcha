@@ -126,7 +126,7 @@ router.get('/google/status', (req, res) => {
 router.get('/google', (req, res) => {
   const clientId = process.env.GOOGLE_CLIENT_ID;
   const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
-  const backendUrl = `http://localhost:${process.env.PORT || 4000}`;
+  const backendUrl = process.env.BACKEND_URL || `http://localhost:${process.env.PORT || 4000}`;
   const redirectUri = process.env.GOOGLE_CALLBACK_URL || `${backendUrl}/auth/google/callback`;
 
   if (!clientId || clientId.trim() === '' || clientId.includes('your_google_client_id')) {
@@ -153,7 +153,7 @@ router.get('/google', (req, res) => {
 router.get('/google/callback', async (req, res) => {
   const { code, state, error } = req.query;
   const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
-  const backendUrl = `http://localhost:${process.env.PORT || 4000}`;
+  const backendUrl = process.env.BACKEND_URL || `http://localhost:${process.env.PORT || 4000}`;
   const redirectUri = process.env.GOOGLE_CALLBACK_URL || `${backendUrl}/auth/google/callback`;
 
   if (error || !code) {

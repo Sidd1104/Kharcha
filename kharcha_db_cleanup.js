@@ -1,5 +1,4 @@
-// Run with: node kharcha_db_cleanup.js
-// (or: DATABASE_URL="postgresql://neondb_owner:npg_5VLhXzCpvwu3@ep-misty-hall-ae8q6tto-pooler.c-2.us-east-2.aws.neon.tech/neondb?sslmode=require" node kharcha_db_cleanup.js)
+// Run with: DATABASE_URL="your-connection-string" node kharcha_db_cleanup.js
 //
 // Wipes ALL rows from every Kharcha table and resets auto-increment IDs
 // back to 1. Does NOT drop tables/columns/indexes — schema stays intact.
@@ -18,9 +17,7 @@ try {
   Client = require(path.join(__dirname, 'backend/node_modules/pg')).Client;
 }
 
-const DATABASE_URL =
-  process.env.DATABASE_URL ||
-  'postgresql://neondb_owner:npg_5VLhXzCpvwu3@ep-misty-hall-ae8q6tto-pooler.c-2.us-east-2.aws.neon.tech/neondb?sslmode=require';
+const DATABASE_URL = process.env.DATABASE_URL;
 
 async function confirm(question) {
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
