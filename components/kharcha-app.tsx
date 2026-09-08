@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState, useRef } from 'react'
+import Link from 'next/link'
 import {
   AlertTriangle, ArrowLeft, ArrowRight, Bell, Car, Check, ChevronDown, Copy, GitMerge, Home, KeyRound, Loader2, Lock, LogOut, Mail, Plus,
   Receipt, ShieldCheck, SlidersHorizontal, Sparkles, Trash2, User, UserCheck, UserMinus, UserPlus, Utensils, Wallet, X,
@@ -270,15 +271,26 @@ function AuthScreen({
         </div>
 
         {/* Bottom trust indicators */}
-        <div className="flex items-center justify-center gap-6 text-xs text-muted-foreground">
-          <span className="flex items-center gap-1.5">
-            <Lock className="size-3.5 text-muted-foreground" />
-            Encrypted data
-          </span>
-          <span className="flex items-center gap-1.5">
-            <ShieldCheck className="size-3.5 text-muted-foreground" />
-            No spam, ever
-          </span>
+        <div className="flex flex-col items-center gap-3 text-xs text-muted-foreground">
+          <div className="flex items-center justify-center gap-6">
+            <span className="flex items-center gap-1.5">
+              <Lock className="size-3.5 text-muted-foreground" />
+              Encrypted data
+            </span>
+            <span className="flex items-center gap-1.5">
+              <ShieldCheck className="size-3.5 text-muted-foreground" />
+              No spam, ever
+            </span>
+          </div>
+          <div className="flex items-center gap-3 text-[11px] text-muted-foreground/80">
+            <Link href="/privacy" className="hover:text-foreground transition-colors underline-offset-4 hover:underline">
+              Privacy Policy
+            </Link>
+            <span>&bull;</span>
+            <Link href="/terms" className="hover:text-foreground transition-colors underline-offset-4 hover:underline">
+              Terms of Service
+            </Link>
+          </div>
         </div>
       </div>
 
@@ -2097,7 +2109,30 @@ function UserProfileMenu({ user, onLogout }: { user: AuthUser; onLogout: () => v
             </div>
           </div>
 
-          <div className="my-3">
+          <div className="my-2.5">
+            <Separator />
+          </div>
+
+          <div className="space-y-0.5">
+            <Link
+              href="/privacy"
+              onClick={() => setOpen(false)}
+              className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+            >
+              <ShieldCheck className="size-3.5" />
+              <span>Privacy Policy</span>
+            </Link>
+            <Link
+              href="/terms"
+              onClick={() => setOpen(false)}
+              className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+            >
+              <Receipt className="size-3.5" />
+              <span>Terms of Service</span>
+            </Link>
+          </div>
+
+          <div className="my-2">
             <Separator />
           </div>
 
@@ -2249,6 +2284,23 @@ export function KharchaApp() {
           }}
         />
       )}
+
+      <footer className="mt-auto border-t border-border py-6 text-xs text-muted-foreground">
+        <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4 px-5 lg:px-8">
+          <div className="flex items-center gap-2">
+            <div className="grid size-5 place-items-center rounded bg-primary text-primary-foreground">
+              <Wallet className="size-3" />
+            </div>
+            <span className="font-semibold text-foreground">kharcha<span className="text-emerald-500">.</span></span>
+            <span className="text-muted-foreground/60">&mdash; Split expenses. Settle instantly.</span>
+          </div>
+          <div className="flex items-center gap-4">
+            <Link href="/privacy" className="hover:text-foreground transition-colors">Privacy Policy</Link>
+            <span>&bull;</span>
+            <Link href="/terms" className="hover:text-foreground transition-colors">Terms of Service</Link>
+          </div>
+        </div>
+      </footer>
     </main>
   )
 }
