@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef } from 'react'
 import {
-  AlertTriangle, ArrowLeft, ArrowRight, Bell, Car, Check, ChevronDown, Copy, GitMerge, Home, KeyRound, Loader2, Lock, Mail, Plus,
+  AlertTriangle, ArrowLeft, ArrowRight, Bell, Car, Check, ChevronDown, Copy, GitMerge, Home, KeyRound, Loader2, Lock, LogOut, Mail, Plus,
   Receipt, ShieldCheck, SlidersHorizontal, Sparkles, Trash2, User, UserCheck, UserMinus, UserPlus, Utensils, Wallet, X,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
