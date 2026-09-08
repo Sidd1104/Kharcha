@@ -136,7 +136,7 @@ router.post('/join', joinLimiter, async (req, res) => {
             id: group.id,
             name: group.name,
             icon: group.icon,
-            join_code: group.join_code
+            ...(group.created_by === req.user.id ? { join_code: group.join_code } : {})
           },
           participant: {
             id: existing.id,
@@ -175,7 +175,7 @@ router.post('/join', joinLimiter, async (req, res) => {
             id: group.id,
             name: group.name,
             icon: group.icon,
-            join_code: group.join_code
+            ...(group.created_by === req.user.id ? { join_code: group.join_code } : {})
           },
           participant: {
             id: participant.id,
@@ -213,7 +213,7 @@ router.post('/join', joinLimiter, async (req, res) => {
           id: group.id,
           name: group.name,
           icon: group.icon,
-          join_code: group.join_code
+          ...(group.created_by === req.user.id ? { join_code: group.join_code } : {})
         },
         participant: {
           id: participant.id,
@@ -240,7 +240,7 @@ router.post('/join', joinLimiter, async (req, res) => {
           id: group.id,
           name: group.name,
           icon: group.icon,
-          join_code: group.join_code,
+          ...(group.created_by === req.user.id ? { join_code: group.join_code } : {})
         },
         candidates: candidates.map((c) => ({
           participantId: c.id,
@@ -276,7 +276,7 @@ router.post('/join', joinLimiter, async (req, res) => {
         id: group.id,
         name: group.name,
         icon: group.icon,
-        join_code: group.join_code
+        ...(group.created_by === req.user.id ? { join_code: group.join_code } : {})
       },
       participant: {
         id: participant.id,
@@ -391,7 +391,7 @@ router.post('/:id/join/confirm', joinLimiter, async (req, res) => {
         id: group.id,
         name: group.name,
         icon: group.icon,
-        join_code: group.join_code,
+        ...(group.created_by === req.user.id ? { join_code: group.join_code } : {})
       },
       participant: {
         id: participant.id,
