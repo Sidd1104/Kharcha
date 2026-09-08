@@ -2017,6 +2017,100 @@ function NotificationBell() {
 }
 
 // ---------------------------------------------------------------------------
+// User Profile Menu (Avatar Dropdown)
+// ---------------------------------------------------------------------------
+function UserProfileMenu({ user, onLogout }: { user: AuthUser; onLogout: () => void }) {
+  const [open, setOpen] = useState(false)
+  const menuRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    function handleClickOutside(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setOpen(false)
+      }
+    }
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') {
+        setOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [open])
+
+  const isGoogle = (user.email || '').toLowerCase().endsWith('@gmail.com')
+
+  return (
+    <div className="relative" ref={menuRef}>
+      <button
+        type="button"
+        onClick={() => setOpen((prev) => !prev)}
+        aria-expanded={open}
+        aria-haspopup="true"
+        title={`${user.name} (${user.email})`}
+        className={cn(
+          "ml-1 flex items-center rounded-full p-0.5 transition-all outline-none focus-visible:ring-2 focus-visible:ring-primary/40",
+          open ? "ring-2 ring-primary/40 shadow-sm" : "hover:ring-2 hover:ring-border"
+        )}
+      >
+        <Avatar className="size-8 cursor-pointer border border-border shadow-xs">
+          <AvatarFallback className="bg-primary/10 text-primary text-xs font-semibold">
+            {initialsOf(user.name)}
+          </AvatarFallback>
+        </Avatar>
+      </button>
+
+      {open && (
+        <div className="absolute right-0 top-11 z-50 w-72 max-w-[calc(100vw-2rem)] origin-top-right rounded-2xl border border-border bg-card p-4 shadow-xl backdrop-blur animate-in fade-in zoom-in-95 duration-150">
+          <div className="flex items-start gap-3">
+            <Avatar className="size-11 border border-border shrink-0 mt-0.5">
+              <AvatarFallback className="bg-primary/15 text-primary text-sm font-bold">
+                {initialsOf(user.name)}
+              </AvatarFallback>
+            </Avatar>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-bold text-foreground leading-snug">
+                {user.name}
+              </p>
+              <p className="truncate text-xs text-muted-foreground mt-0.5 font-medium" title={user.email}>
+                {user.email}
+              </p>
+              <div className="mt-1.5 flex items-center gap-1.5">
+                <span className="size-1.5 rounded-full bg-emerald-500 shrink-0" />
+                <span className="text-[11px] text-muted-foreground">
+                  {isGoogle ? 'Google Account' : 'Registered Account'}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div className="my-3">
+            <Separator />
+          </div>
+
+          <button
+            type="button"
+            onClick={() => {
+              setOpen(false)
+              onLogout()
+            }}
+            className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-sm font-medium text-destructive hover:bg-destructive/10 transition-colors"
+          >
+            <LogOut className="size-4 shrink-0" />
+            <span>Sign out</span>
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
 // Root component
 // ---------------------------------------------------------------------------
 export function KharchaApp() {
@@ -2113,9 +2207,7 @@ export function KharchaApp() {
           </button>
           <div className="flex items-center gap-2">
             <NotificationBell />
-            <button onClick={handleLogout} className="ml-1">
-              <Avatar className="size-8"><AvatarFallback className="bg-accent text-accent-foreground text-xs font-semibold">{initialsOf(user.name)}</AvatarFallback></Avatar>
-            </button>
+            <UserProfileMenu user={user} onLogout={handleLogout} />
           </div>
         </div>
       </header>
