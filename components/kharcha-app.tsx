@@ -4,7 +4,7 @@ import { useEffect, useState, useRef } from 'react'
 import Link from 'next/link'
 import {
   AlertTriangle, ArrowLeft, ArrowRight, Bell, Car, Check, CheckCheck, CheckCircle2, ChevronDown, Copy, GitMerge, Home, KeyRound, Loader2, Lock, LogOut, Mail, Plus,
-  Receipt, ShieldCheck, SlidersHorizontal, Sparkles, Trash2, User, UserCheck, UserMinus, UserPlus, Utensils, Wallet, X,
+  Receipt, Search, ShieldCheck, SlidersHorizontal, Sparkles, Trash2, User, UserCheck, UserMinus, UserPlus, Utensils, Wallet, X,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -1352,7 +1352,7 @@ function NewGroupModal({ onClose, onCreated }: { onClose: () => void; onCreated:
 // Dashboard — real groups + real aggregate balance
 // ---------------------------------------------------------------------------
 function Dashboard({
-  user, groups, groupBalances, groupSettled = {}, loading, onOpenGroup, onNewGroup, onJoinGroup,
+  user, groups, groupBalances, groupSettled = {}, loading, onOpenGroup, onNewGroup, onJoinGroup, onOpenAllGroups,
 }: {
   user: AuthUser
   groups: Group[]
@@ -1362,6 +1362,7 @@ function Dashboard({
   onOpenGroup: (id: number) => void
   onNewGroup: () => void
   onJoinGroup: () => void
+  onOpenAllGroups: () => void
 }) {
   const totalBalance = Object.values(groupBalances).reduce((s, b) => s + b, 0)
   const pendingGroupsCount = groups.filter((g) => (groupBalances[g.id] ?? 0) !== 0).length
@@ -1435,7 +1436,18 @@ function Dashboard({
 
       {/* "Your groups" section */}
       <div className="mt-10">
-        <h2 className="text-lg font-bold tracking-tight text-foreground">Your groups</h2>
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-bold tracking-tight text-foreground">Your groups</h2>
+          {groups.length > 2 && (
+            <button
+              onClick={onOpenAllGroups}
+              className="group inline-flex items-center gap-1 text-xs font-semibold text-primary hover:text-primary/80 transition-colors"
+            >
+              <span>More groups ({groups.length})</span>
+              <ArrowRight className="size-3.5 transition-transform group-hover:translate-x-0.5" />
+            </button>
+          )}
+        </div>
 
         {loading ? (
           <div className="mt-8 flex justify-center">
@@ -1449,69 +1461,339 @@ function Dashboard({
             </p>
           </div>
         ) : (
-          <div className="mt-4 grid gap-4 md:grid-cols-2">
-            {groups.map((group) => {
-              const balance = groupBalances[group.id] ?? 0
-              const isPositive = balance > 0
-              const isNegative = balance < 0
-              const isSettled = !!groupSettled[group.id]
-              const iconData = getGroupIconDetails(group)
-              const GroupIcon = iconData.Icon
+          <>
+            <div className="mt-4 grid gap-4 md:grid-cols-2">
+              {groups.slice(0, 2).map((group) => {
+                const balance = groupBalances[group.id] ?? 0
+                const isPositive = balance > 0
+                const isNegative = balance < 0
+                const isSettled = !!groupSettled[group.id]
+                const iconData = getGroupIconDetails(group)
+                const GroupIcon = iconData.Icon
 
-              return (
-                <button
-                  key={group.id}
-                  onClick={() => onOpenGroup(group.id)}
-                  className={cn(
-                    'group flex flex-col justify-between rounded-xl border border-border bg-card p-5 text-left transition-all hover:border-zinc-700',
-                    isSettled && 'opacity-80 bg-card/60 border-emerald-900/30 shadow-inner hover:opacity-100 hover:border-emerald-700/50'
-                  )}
-                >
-                  <div>
-                    <div className="flex items-center justify-between">
-                      <div className={cn('grid size-10 place-items-center rounded-lg', iconData.bg)}>
-                        <GroupIcon className="size-5" />
+                return (
+                  <button
+                    key={group.id}
+                    onClick={() => onOpenGroup(group.id)}
+                    className={cn(
+                      'group flex flex-col justify-between rounded-xl border border-border bg-card p-5 text-left transition-all hover:border-zinc-700',
+                      isSettled && 'opacity-80 bg-card/60 border-emerald-900/30 shadow-inner hover:opacity-100 hover:border-emerald-700/50'
+                    )}
+                  >
+                    <div>
+                      <div className="flex items-center justify-between">
+                        <div className={cn('grid size-8 place-items-center rounded-lg', iconData.bg)}>
+                          <GroupIcon className="size-4" />
+                        </div>
+                        {isSettled && (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 border border-emerald-500/30 px-2.5 py-0.5 text-xs font-semibold text-emerald-400">
+                            <CheckCircle2 className="size-3" /> Settled
+                          </span>
+                        )}
                       </div>
-                      {isSettled && (
-                        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 border border-emerald-500/30 px-2.5 py-0.5 text-xs font-semibold text-emerald-400">
-                          <CheckCircle2 className="size-3" /> Settled
-                        </span>
-                      )}
+                      <h3 className="mt-3.5 text-base font-bold text-foreground">{group.name}</h3>
+                      <p className="mt-0.5 text-sm text-muted-foreground">
+                        {group.member_count ?? 1} members · {group.expense_count ?? 0} expenses
+                      </p>
                     </div>
-                    <h3 className="mt-4 text-base font-bold text-foreground">{group.name}</h3>
-                    <p className="mt-0.5 text-sm text-muted-foreground">
-                      {group.member_count ?? 1} members · {group.expense_count ?? 0} expenses
-                    </p>
-                  </div>
 
-                  <div className="mt-6 flex items-center justify-between">
-                    <span className="text-xs text-muted-foreground">
-                      {isSettled ? 'All debts cleared' : ''}
-                    </span>
-                    <p
-                      className={cn(
-                        'text-base font-bold tracking-tight',
-                        isSettled
-                          ? 'text-emerald-400 font-semibold'
-                          : isPositive
-                          ? 'text-emerald-400'
-                          : isNegative
-                          ? 'text-rose-400'
-                          : 'text-muted-foreground'
-                      )}
-                    >
-                      {isSettled
-                        ? '₹0 · Settled'
-                        : `${isPositive ? '+' : isNegative ? '-' : ''}₹${Math.abs(Math.round(balance)).toLocaleString('en-IN')}`}
-                    </p>
-                  </div>
-                </button>
-              )
-            })}
-          </div>
+                    <div className="mt-6 flex items-center justify-between">
+                      <span className="text-xs text-muted-foreground">
+                        {isSettled ? 'All debts cleared' : ''}
+                      </span>
+                      <p
+                        className={cn(
+                          'text-base font-bold tracking-tight',
+                          isSettled
+                            ? 'text-emerald-400 font-semibold'
+                            : isPositive
+                            ? 'text-emerald-400'
+                            : isNegative
+                            ? 'text-rose-400'
+                            : 'text-muted-foreground'
+                        )}
+                      >
+                        {isSettled
+                          ? '₹0 · Settled'
+                          : `${isPositive ? '+' : isNegative ? '-' : ''}₹${Math.abs(Math.round(balance)).toLocaleString('en-IN')}`}
+                      </p>
+                    </div>
+                  </button>
+                )
+              })}
+            </div>
+
+            {groups.length > 2 && (
+              <div className="mt-4 flex justify-center">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={onOpenAllGroups}
+                  className="w-full sm:w-auto text-xs font-medium border-border/80 text-muted-foreground hover:text-foreground"
+                >
+                  View all {groups.length} groups
+                  <ArrowRight className="ml-1.5 size-3.5" />
+                </Button>
+              </div>
+            )}
+          </>
         )}
       </div>
     </>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// AllGroupsView — Dedicated directory of all user groups with Active / Settled tabs
+// ---------------------------------------------------------------------------
+function AllGroupsView({
+  groups,
+  groupBalances,
+  groupSettled = {},
+  loading,
+  onOpenGroup,
+  onBack,
+  onNewGroup,
+  onJoinGroup,
+}: {
+  groups: Group[]
+  groupBalances: Record<number, number>
+  groupSettled?: Record<number, boolean>
+  loading: boolean
+  onOpenGroup: (id: number) => void
+  onBack: () => void
+  onNewGroup: () => void
+  onJoinGroup: () => void
+}) {
+  const [filterTab, setFilterTab] = useState<'all' | 'active' | 'settled'>('all')
+  const [searchQuery, setSearchQuery] = useState('')
+
+  const activeCount = groups.filter((g) => !groupSettled[g.id]).length
+  const settledCount = groups.filter((g) => !!groupSettled[g.id]).length
+
+  const filteredGroups = groups.filter((g) => {
+    const isSettled = !!groupSettled[g.id]
+    if (filterTab === 'active' && isSettled) return false
+    if (filterTab === 'settled' && !isSettled) return false
+    if (searchQuery.trim()) {
+      return (g.name || '').toLowerCase().includes(searchQuery.trim().toLowerCase())
+    }
+    return true
+  })
+
+  return (
+    <div className="space-y-6">
+      {/* Top breadcrumb navigation & actions */}
+      <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
+        <div>
+          <button
+            onClick={onBack}
+            className="group mb-2 inline-flex items-center gap-1.5 text-xs font-semibold text-muted-foreground transition-colors hover:text-foreground"
+          >
+            <ArrowLeft className="size-3.5 transition-transform group-hover:-translate-x-0.5" />
+            <span>Back to Dashboard</span>
+          </button>
+          <div className="flex items-center gap-3">
+            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-foreground">
+              All groups
+            </h1>
+            <span className="rounded-full bg-secondary px-2.5 py-0.5 text-xs font-semibold text-secondary-foreground">
+              {groups.length}
+            </span>
+          </div>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Browse and manage all your shared expense groups
+          </p>
+        </div>
+
+        <div className="flex items-center gap-2.5">
+          <Button
+            variant="outline"
+            onClick={onJoinGroup}
+            className="h-10 rounded-lg border-border px-4 font-medium"
+          >
+            <KeyRound className="mr-1.5 size-4" /> Join group
+          </Button>
+          <Button
+            onClick={onNewGroup}
+            className="h-10 rounded-lg bg-primary px-4 font-medium text-primary-foreground hover:bg-primary/90"
+          >
+            <Plus className="mr-1.5 size-4" /> New group
+          </Button>
+        </div>
+      </div>
+
+      {/* Filter Tabs and Search Bar */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between pt-2">
+        {/* Filter Pills */}
+        <div className="inline-flex rounded-lg border border-border bg-card p-1">
+          <button
+            onClick={() => setFilterTab('all')}
+            className={cn(
+              'rounded-md px-3 py-1.5 text-xs font-semibold transition-colors',
+              filterTab === 'all'
+                ? 'bg-primary text-primary-foreground shadow-sm'
+                : 'text-muted-foreground hover:text-foreground'
+            )}
+          >
+            All ({groups.length})
+          </button>
+          <button
+            onClick={() => setFilterTab('active')}
+            className={cn(
+              'rounded-md px-3 py-1.5 text-xs font-semibold transition-colors',
+              filterTab === 'active'
+                ? 'bg-primary text-primary-foreground shadow-sm'
+                : 'text-muted-foreground hover:text-foreground'
+            )}
+          >
+            Active ({activeCount})
+          </button>
+          <button
+            onClick={() => setFilterTab('settled')}
+            className={cn(
+              'rounded-md px-3 py-1.5 text-xs font-semibold transition-colors',
+              filterTab === 'settled'
+                ? 'bg-primary text-primary-foreground shadow-sm'
+                : 'text-muted-foreground hover:text-foreground'
+            )}
+          >
+            Settled ({settledCount})
+          </button>
+        </div>
+
+        {/* Search Input */}
+        <div className="relative w-full sm:w-64">
+          <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search groups..."
+            className="h-9 pl-9 pr-8 text-xs rounded-lg border-border bg-card text-foreground placeholder:text-muted-foreground focus-visible:ring-1"
+          />
+          {searchQuery && (
+            <button
+              onClick={() => setSearchQuery('')}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+            >
+              <X className="size-3.5" />
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Grid of Groups */}
+      {loading ? (
+        <div className="mt-12 flex justify-center py-12">
+          <Loader2 className="size-6 animate-spin text-muted-foreground" />
+        </div>
+      ) : filteredGroups.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-border p-12 text-center">
+          <p className="font-semibold text-foreground">
+            {searchQuery
+              ? `No groups match "${searchQuery}"`
+              : filterTab === 'active'
+              ? 'No active groups'
+              : filterTab === 'settled'
+              ? 'No settled groups yet'
+              : 'No groups found'}
+          </p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {searchQuery
+              ? 'Try searching with a different name or clear the search filter.'
+              : filterTab === 'active'
+              ? 'All your groups have settled up all their balances!'
+              : filterTab === 'settled'
+              ? 'When all balances in a group reach zero or are settled, they appear here.'
+              : 'Create or join a group to get started.'}
+          </p>
+          {searchQuery && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setSearchQuery('')}
+              className="mt-4 text-xs font-medium"
+            >
+              Clear search
+            </Button>
+          )}
+        </div>
+      ) : (
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {filteredGroups.map((group) => {
+            const balance = groupBalances[group.id] ?? 0
+            const isPositive = balance > 0
+            const isNegative = balance < 0
+            const isSettled = !!groupSettled[group.id]
+            const iconData = getGroupIconDetails(group)
+            const GroupIcon = iconData.Icon
+
+            return (
+              <button
+                key={group.id}
+                onClick={() => onOpenGroup(group.id)}
+                className={cn(
+                  'group flex flex-col justify-between rounded-xl border border-border bg-card p-5 text-left transition-all hover:border-zinc-700 hover:shadow-md',
+                  isSettled &&
+                    'opacity-85 bg-card/60 border-emerald-900/30 hover:opacity-100 hover:border-emerald-700/50'
+                )}
+              >
+                <div>
+                  <div className="flex items-center justify-between">
+                    <div className={cn('grid size-8 place-items-center rounded-lg', iconData.bg)}>
+                      <GroupIcon className="size-4" />
+                    </div>
+                    {isSettled ? (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 border border-emerald-500/30 px-2 py-0.5 text-[11px] font-semibold text-emerald-400">
+                        <CheckCircle2 className="size-3" /> Settled
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-muted/60 border border-border/60 px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+                        Active
+                      </span>
+                    )}
+                  </div>
+                  <h3 className="mt-3.5 text-base font-bold text-foreground line-clamp-1">
+                    {group.name}
+                  </h3>
+                  <p className="mt-0.5 text-xs text-muted-foreground">
+                    {group.member_count ?? 1} members · {group.expense_count ?? 0} expenses
+                  </p>
+                </div>
+
+                <div className="mt-6 flex items-center justify-between border-t border-border/40 pt-3">
+                  <span className="text-[11px] text-muted-foreground">
+                    {isSettled
+                      ? 'Debts cleared'
+                      : isPositive
+                      ? 'You are owed'
+                      : isNegative
+                      ? 'You owe'
+                      : 'Settled'}
+                  </span>
+                  <p
+                    className={cn(
+                      'text-sm font-bold tracking-tight',
+                      isSettled
+                        ? 'text-emerald-400 font-semibold'
+                        : isPositive
+                        ? 'text-emerald-400'
+                        : isNegative
+                        ? 'text-rose-400'
+                        : 'text-muted-foreground'
+                    )}
+                  >
+                    {isSettled
+                      ? '₹0 · Settled'
+                      : `${isPositive ? '+' : isNegative ? '-' : ''}₹${Math.abs(Math.round(balance)).toLocaleString('en-IN')}`}
+                  </p>
+                </div>
+              </button>
+            )
+          })}
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -2335,6 +2617,7 @@ export function KharchaApp() {
   const [groupSettled, setGroupSettled] = useState<Record<number, boolean>>({})
   const [groupsLoading, setGroupsLoading] = useState(true)
   const [activeGroupId, setActiveGroupId] = useState<number | null>(null)
+  const [viewMode, setViewMode] = useState<'dashboard' | 'all-groups'>('dashboard')
   const [newGroupOpen, setNewGroupOpen] = useState(false)
   const [joinGroupOpen, setJoinGroupOpen] = useState(false)
 
@@ -2411,6 +2694,7 @@ export function KharchaApp() {
     setUser(null)
     setGroups([])
     setActiveGroupId(null)
+    setViewMode('dashboard')
   }
 
   if (checkingSession) {
@@ -2425,7 +2709,13 @@ export function KharchaApp() {
     <main className="flex min-h-screen flex-col bg-background">
       <header className="sticky top-0 z-20 border-b border-border bg-background/90 backdrop-blur">
         <div className="mx-auto flex h-16 max-w-7xl items-center justify-between px-5 lg:px-8">
-          <button onClick={() => setActiveGroupId(null)} className="flex items-center gap-2.5">
+          <button
+            onClick={() => {
+              setActiveGroupId(null)
+              setViewMode('dashboard')
+            }}
+            className="flex items-center gap-2.5"
+          >
             <div className="grid size-8 place-items-center rounded-lg bg-primary text-primary-foreground"><Wallet className="size-4" /></div>
             <span className="font-bold tracking-tight text-foreground">kharcha<span className="text-emerald-500">.</span></span>
           </button>
@@ -2437,7 +2727,20 @@ export function KharchaApp() {
       </header>
 
       <div className="mx-auto w-full max-w-7xl flex-1 px-5 py-8 lg:px-8 lg:py-10">
-        {activeGroupId === null ? (
+        {activeGroupId !== null ? (
+          <GroupView groupId={activeGroupId} currentUser={user} onBack={() => setActiveGroupId(null)} />
+        ) : viewMode === 'all-groups' ? (
+          <AllGroupsView
+            groups={groups}
+            groupBalances={groupBalances}
+            groupSettled={groupSettled}
+            loading={groupsLoading}
+            onOpenGroup={setActiveGroupId}
+            onBack={() => setViewMode('dashboard')}
+            onNewGroup={() => setNewGroupOpen(true)}
+            onJoinGroup={() => setJoinGroupOpen(true)}
+          />
+        ) : (
           <Dashboard
             user={user}
             groups={groups}
@@ -2447,9 +2750,8 @@ export function KharchaApp() {
             onOpenGroup={setActiveGroupId}
             onNewGroup={() => setNewGroupOpen(true)}
             onJoinGroup={() => setJoinGroupOpen(true)}
+            onOpenAllGroups={() => setViewMode('all-groups')}
           />
-        ) : (
-          <GroupView groupId={activeGroupId} currentUser={user} onBack={() => setActiveGroupId(null)} />
         )}
       </div>
 
